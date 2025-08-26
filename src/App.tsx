@@ -18,6 +18,7 @@ import DisputeResolutionPage from "./pages/admin/DisputeResolutionPage";
 import ActivityLogPage from "./pages/admin/ActivityLogPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import MasterAdminPage from "./pages/admin/MasterAdminPage";
+import Footer from "./components/Footer";   // ✅ import Footer
 
 // Loading fallback
 const LoadingFallback = () => (
@@ -37,36 +38,43 @@ function App() {
   
   return (
     <TooltipProvider>
-      <BrowserRouter>
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
-            {/* Main Routes */}
-            <Route path="/" element={<HomePage />} />
-            <Route path="/driver-login" element={<DriverLoginPage />} />
-            <Route path="/driver-preferences" element={<DriverPreferencesPage />} />
-            <Route path="/admin-portal" element={<AdminPortalPage />} />
-            <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
-            
-            {/* Admin Routes */}
-            <Route path="/admin" element={<AdminDashboardPage />} />
-            <Route path="/admin/edit-drivers" element={<EditDriversPage />} />
-            <Route path="/admin/edit-jobs" element={<EditJobsPage />} />
-            <Route path="/admin/live-picks-snapshot" element={<LivePicksSnapshotPage />} />
-            <Route path="/admin/final-assignments" element={<FinalAssignmentsPage />} />
-            <Route path="/admin/conflict-resolution" element={<ConflictResolutionPage />} />
-            <Route path="/admin/dispute-resolution" element={<DisputeResolutionPage />} />
-            <Route path="/admin/statistics" element={<StatisticsPage />} />
-            <Route path="/admin/activity-log" element={<ActivityLogPage />} />
-            <Route path="/admin/system-settings" element={<SystemSettingsPage />} />
-            {/* Master Admin route - protected by authorization checks inside the component */}
-            <Route path="/admin/master-admin" element={<MasterAdminPage />} />
-            
-            {/* 404 Route */}
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </Suspense>
-        <Toaster />
-      </BrowserRouter>
+      <div className="flex flex-col min-h-screen">   {/* ✅ wrapper for full height */}
+        <BrowserRouter>
+          <Suspense fallback={<LoadingFallback />}>
+            <div className="flex-1">   {/* ✅ main content area */}
+              <Routes>
+                {/* Main Routes */}
+                <Route path="/" element={<HomePage />} />
+                <Route path="/driver-login" element={<DriverLoginPage />} />
+                <Route path="/driver-preferences" element={<DriverPreferencesPage />} />
+                <Route path="/admin-portal" element={<AdminPortalPage />} />
+                <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
+                
+                {/* Admin Routes */}
+                <Route path="/admin" element={<AdminDashboardPage />} />
+                <Route path="/admin/edit-drivers" element={<EditDriversPage />} />
+                <Route path="/admin/edit-jobs" element={<EditJobsPage />} />
+                <Route path="/admin/live-picks-snapshot" element={<LivePicksSnapshotPage />} />
+                <Route path="/admin/final-assignments" element={<FinalAssignmentsPage />} />
+                <Route path="/admin/conflict-resolution" element={<ConflictResolutionPage />} />
+                <Route path="/admin/dispute-resolution" element={<DisputeResolutionPage />} />
+                <Route path="/admin/statistics" element={<StatisticsPage />} />
+                <Route path="/admin/activity-log" element={<ActivityLogPage />} />
+                <Route path="/admin/system-settings" element={<SystemSettingsPage />} />
+                {/* Master Admin route - protected by authorization checks inside the component */}
+                <Route path="/admin/master-admin" element={<MasterAdminPage />} />
+                
+                {/* 404 Route */}
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </div>
+          </Suspense>
+          <Toaster />
+        </BrowserRouter>
+
+        {/* ✅ shared footer always at bottom */}
+        <Footer />
+      </div>
     </TooltipProvider>
   );
 }
