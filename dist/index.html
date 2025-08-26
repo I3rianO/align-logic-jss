@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23002F5F'/%3E%3Cpath d='M20 70 L80 70 L70 90 L30 90 Z' fill='%23FFD700' transform='skewX(-15)'/%3E%3C/svg%3E" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Job Selection System (JSS) - Driver job selection portal for eligible drivers to submit weekly job preferences based on seniority" />
+    <meta name="keywords" content="job selection system, driver portal, seniority-based assignment, transportation jobs, driver preferences, job bidding" />
+    <title>Job Selection System (JSS)</title>
+    <!-- Visible content in case JavaScript fails to load -->
+    <style>
+      .fallback-content {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        max-width: 600px;
+        margin: 50px auto;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        display: block;
+      }
+      .app-content { display: none; }
+    </style>
+    <link rel="stylesheet" href="./assets/index-OlOqeuoT.css">
+    <script>
+      // Fix asset loading issues when using file:// protocol
+      document.addEventListener('DOMContentLoaded', function() {
+        console.log('Application initialization completed');
+        
+        // If you encounter module loading issues, this script can help debug
+        window.onerror = function(msg, url, line, col, error) {
+          console.error('Error: ' + msg + '\nURL: ' + url + '\nLine: ' + line + '\nColumn: ' + col);
+          document.getElementById('error-details').textContent = msg;
+          document.getElementById('error-url').textContent = url;
+          document.getElementById('fallback-content').style.display = 'block';
+          return false;
+        };
+
+        // Try to hide fallback after successful load
+        try {
+          setTimeout(function() {
+            const fallbackEl = document.getElementById('fallback-content');
+            const appEl = document.getElementById('root');
+            if (fallbackEl && appEl && appEl.children.length > 0) {
+              fallbackEl.style.display = 'none';
+              appEl.style.display = 'block';
+            }
+          }, 1000);
+        } catch (e) {
+          console.error('Error in initialization:', e);
+        }
+      });
+    </script>
+    <!-- Load main application script with defer to ensure it loads after DOM is ready -->
+    <script type="module" src="./assets/index-CcJGERm0.js" defer></script>
+  </head>
+  <body>
+    <!-- Fallback content that will show if JS fails to load -->
+    <div id="fallback-content" class="fallback-content">
+      <h2 style="color: #d9534f;">Application Loading Error</h2>
+      <p>The Job Selection System failed to load properly. This is likely due to browser security restrictions when running from the file system.</p>
+      
+      <h3>Error Details:</h3>
+      <p><strong>Error:</strong> <span id="error-details">JavaScript module loading error</span></p>
+      <p><strong>File:</strong> <span id="error-url">Unknown</span></p>
+      
+      <h3>Solutions:</h3>
+      <ol>
+        <li><strong>Try Chrome with special flags:</strong><br>
+        Close Chrome and run this command:<br>
+        <code>"C:\Program Files\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files "C:\JSS\dist\index.html"</code></li>
+        
+        <li><strong>Use Firefox:</strong><br>
+        Open Firefox, navigate to <code>about:config</code>, search for <code>security.fileuri.strict_origin_policy</code> and set it to <code>false</code></li>
+        
+        <li><strong>Use a local server:</strong><br>
+        If you have Node.js installed, open command prompt in the JSS folder and run:<br>
+        <code>npx serve dist</code><br>
+        Then open <code>http://localhost:3000</code> in your browser</li>
+      </ol>
+      
+      <p><strong>For detailed instructions:</strong> See the TROUBLESHOOTING.md file in the JSS folder.</p>
+      
+      <button onclick="window.location.href='./direct-launcher.html'" style="background-color: #0047AB; color: white; border: none; border-radius: 4px; padding: 10px 15px; cursor: pointer;">
+        Return to Launcher
+      </button>
+    </div>
+    
+    <!-- Application root container -->
+    <div id="root" class="app-content"></div>
+  </body>
+</html>

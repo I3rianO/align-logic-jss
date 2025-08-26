@@ -1,0 +1,579 @@
+===========================================
+    JSS EXPORT 02: STORE & UTILITIES
+===========================================
+
+--- FILE: src/store/driverStore.ts ---
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export interface Driver {
+  id: string;
+  employeeId: string;
+  driverId: string;
+  name: string;
+  seniority: number;
+  isActive: boolean;
+  lastActivity?: string;
+}
+
+export interface Job {
+  id: string;
+  jobNumber: string;
+  route: string;
+  startTime: string;
+  endTime: string;
+  description: string;
+  isAvailable: boolean;
+  assignedDriverId?: string;
+}
+
+export interface JobPreference {
+  driverId: string;
+  jobId: string;
+  priority: number;
+  submittedAt: string;
+}
+
+export interface JobAssignment {
+  driverId: string;
+  jobId: string;
+  assignedAt: string;
+  assignmentReason: string;
+}
+
+interface DriverStore {
+  drivers: Driver[];
+  jobs: Job[];
+  preferences: JobPreference[];
+  assignments: JobAssignment[];
+  
+  // Actions
+  addDriver: (driver: Driver) => void;
+  updateDriver: (id: string, updates: Partial<Driver>) => void;
+  removeDriver: (id: string) => void;
+  
+  addJob: (job: Job) => void;
+  updateJob: (id: string, updates: Partial<Job>) => void;
+  removeJob: (id: string) => void;
+  
+  submitPreferences: (driverId: string, jobIds: string[]) => void;
+  clearPreferences: (driverId: string) => void;
+  
+  calculateJobAssignments: () => void;
+  clearAssignments: () => void;
+  
+  // Getters
+  getDriverById: (id: string) => Driver | undefined;
+  getJobById: (id: string) => Job | undefined;
+  getDriverPreferences: (driverId: string) => JobPreference[];
+  getJobAssignment: (jobId: string) => JobAssignment | undefined;
+  
+  // Seed data
+  seedData: () => void;
+}
+
+const initialDrivers: Driver[] = [
+  {
+    id: 'D001',
+    employeeId: 'EMP001',
+    driverId: '1001',
+    name: 'John Smith',
+    seniority: 15,
+    isActive: true,
+    lastActivity: new Date().toISOString()
+  },
+  {
+    id: 'D002',
+    employeeId: 'EMP002',
+    driverId: '1002',
+    name: 'Sarah Johnson',
+    seniority: 12,
+    isActive: true,
+    lastActivity: new Date().toISOString()
+  },
+  {
+    id: 'D003',
+    employeeId: 'EMP003',
+    driverId: '1003',
+    name: 'Mike Brown',
+    seniority: 8,
+    isActive: true,
+    lastActivity: new Date().toISOString()
+  },
+  {
+    id: 'D004',
+    employeeId: 'EMP004',
+    driverId: '1004',
+    name: 'Lisa Davis',
+    seniority: 20,
+    isActive: true,
+    lastActivity: new Date().toISOString()
+  },
+  {
+    id: 'D005',
+    employeeId: 'EMP005',
+    driverId: '1005',
+    name: 'Robert Wilson',
+    seniority: 5,
+    isActive: true,
+    lastActivity: new Date().toISOString()
+  }
+];
+
+const initialJobs: Job[] = [
+  {
+    id: 'J001',
+    jobNumber: 'RT-101',
+    route: 'Downtown Express',
+    startTime: '06:00',
+    endTime: '14:00',
+    description: 'Main downtown route during morning rush',
+    isAvailable: true
+  },
+  {
+    id: 'J002',
+    jobNumber: 'RT-102',
+    route: 'Airport Shuttle',
+    startTime: '08:00',
+    endTime: '16:00',
+    description: 'Airport shuttle service',
+    isAvailable: true
+  },
+  {
+    id: 'J003',
+    jobNumber: 'RT-103',
+    route: 'University Line',
+    startTime: '07:30',
+    endTime: '15:30',
+    description: 'University campus route',
+    isAvailable: true
+  },
+  {
+    id: 'J004',
+    jobNumber: 'RT-104',
+    route: 'Medical Center',
+    startTime: '09:00',
+    endTime: '17:00',
+    description: 'Medical center and hospital route',
+    isAvailable: true
+  },
+  {
+    id: 'J005',
+    jobNumber: 'RT-105',
+    route: 'Evening Express',
+    startTime: '14:00',
+    endTime: '22:00',
+    description: 'Evening commuter route',
+    isAvailable: true
+  },
+  {
+    id: 'J006',
+    jobNumber: 'RT-106',
+    route: 'Weekend Special',
+    startTime: '10:00',
+    endTime: '18:00',
+    description: 'Weekend shopping district route',
+    isAvailable: true
+  },
+  {
+    id: 'J007',
+    jobNumber: 'RT-107',
+    route: 'Industrial Zone',
+    startTime: '05:30',
+    endTime: '13:30',
+    description: 'Early morning industrial area route',
+    isAvailable: true
+  },
+  {
+    id: 'J008',
+    jobNumber: 'RT-108',
+    route: 'Residential Loop',
+    startTime: '08:30',
+    endTime: '16:30',
+    description: 'Residential neighborhoods loop',
+    isAvailable: true
+  }
+];
+
+export const useDriverStore = create<DriverStore>()(
+  persist(
+    (set, get) => ({
+      drivers: [],
+      jobs: [],
+      preferences: [],
+      assignments: [],
+
+      addDriver: (driver) =>
+        set((state) => ({
+          drivers: [...state.drivers, driver]
+        })),
+
+      updateDriver: (id, updates) =>
+        set((state) => ({
+          drivers: state.drivers.map((driver) =>
+            driver.id === id ? { ...driver, ...updates } : driver
+          )
+        })),
+
+      removeDriver: (id) =>
+        set((state) => ({
+          drivers: state.drivers.filter((driver) => driver.id !== id),
+          preferences: state.preferences.filter((pref) => pref.driverId !== id),
+          assignments: state.assignments.filter((assignment) => assignment.driverId !== id)
+        })),
+
+      addJob: (job) =>
+        set((state) => ({
+          jobs: [...state.jobs, job]
+        })),
+
+      updateJob: (id, updates) =>
+        set((state) => ({
+          jobs: state.jobs.map((job) =>
+            job.id === id ? { ...job, ...updates } : job
+          )
+        })),
+
+      removeJob: (id) =>
+        set((state) => ({
+          jobs: state.jobs.filter((job) => job.id !== id),
+          preferences: state.preferences.filter((pref) => pref.jobId !== id),
+          assignments: state.assignments.filter((assignment) => assignment.jobId !== id)
+        })),
+
+      submitPreferences: (driverId, jobIds) =>
+        set((state) => {
+          const existingPrefs = state.preferences.filter((pref) => pref.driverId !== driverId);
+          const newPreferences = jobIds.map((jobId, index) => ({
+            driverId,
+            jobId,
+            priority: index + 1,
+            submittedAt: new Date().toISOString()
+          }));
+          
+          return {
+            preferences: [...existingPrefs, ...newPreferences]
+          };
+        }),
+
+      clearPreferences: (driverId) =>
+        set((state) => ({
+          preferences: state.preferences.filter((pref) => pref.driverId !== driverId)
+        })),
+
+      calculateJobAssignments: () =>
+        set((state) => {
+          const newAssignments: JobAssignment[] = [];
+          const assignedJobs = new Set<string>();
+          const assignedDrivers = new Set<string>();
+
+          // Sort drivers by seniority (highest first)
+          const sortedDrivers = [...state.drivers]
+            .filter(driver => driver.isActive)
+            .sort((a, b) => b.seniority - a.seniority);
+
+          // Process each driver in seniority order
+          for (const driver of sortedDrivers) {
+            if (assignedDrivers.has(driver.id)) continue;
+
+            const driverPrefs = state.preferences
+              .filter(pref => pref.driverId === driver.id)
+              .sort((a, b) => a.priority - b.priority);
+
+            // Try to assign driver's preferred jobs in order
+            for (const pref of driverPrefs) {
+              const job = state.jobs.find(j => j.id === pref.jobId && j.isAvailable);
+              if (job && !assignedJobs.has(job.id)) {
+                newAssignments.push({
+                  driverId: driver.id,
+                  jobId: job.id,
+                  assignedAt: new Date().toISOString(),
+                  assignmentReason: `Seniority assignment - Priority ${pref.priority}`
+                });
+                assignedJobs.add(job.id);
+                assignedDrivers.add(driver.id);
+                break;
+              }
+            }
+          }
+
+          return { assignments: newAssignments };
+        }),
+
+      clearAssignments: () =>
+        set(() => ({
+          assignments: []
+        })),
+
+      getDriverById: (id) => {
+        const { drivers } = get();
+        return drivers.find((driver) => driver.id === id);
+      },
+
+      getJobById: (id) => {
+        const { jobs } = get();
+        return jobs.find((job) => job.id === id);
+      },
+
+      getDriverPreferences: (driverId) => {
+        const { preferences } = get();
+        return preferences
+          .filter((pref) => pref.driverId === driverId)
+          .sort((a, b) => a.priority - b.priority);
+      },
+
+      getJobAssignment: (jobId) => {
+        const { assignments } = get();
+        return assignments.find((assignment) => assignment.jobId === jobId);
+      },
+
+      seedData: () =>
+        set((state) => {
+          if (state.drivers.length === 0 && state.jobs.length === 0) {
+            return {
+              drivers: initialDrivers,
+              jobs: initialJobs,
+              preferences: [],
+              assignments: []
+            };
+          }
+          return state;
+        })
+    }),
+    {
+      name: 'jss-driver-store',
+      partialize: (state) => ({
+        drivers: state.drivers,
+        jobs: state.jobs,
+        preferences: state.preferences,
+        assignments: state.assignments
+      })
+    }
+  )
+);
+
+--- FILE: src/utils/session.ts ---
+import { useDriverStore } from '../store/driverStore';
+
+export interface SessionUtils {
+  getCurrentDriverId: () => string | null;
+  resolveDriverByAnyId: (searchId: string) => any;
+  isPortalOpen: () => boolean;
+  getCutoffTime: () => Date | null;
+  isAdminLoggedIn: () => boolean;
+  loginAdmin: (password: string) => boolean;
+  logoutAdmin: () => void;
+}
+
+// Get current driver ID from localStorage
+export const getCurrentDriverId = (): string | null => {
+  return localStorage.getItem('currentDriverId');
+};
+
+// Resolve driver by any ID field (employeeId, driverId, or id)
+export const resolveDriverByAnyId = (searchId: string) => {
+  const store = useDriverStore.getState();
+  const drivers = store.drivers;
+  
+  return drivers.find(driver => 
+    driver.id === searchId || 
+    driver.employeeId === searchId || 
+    driver.driverId === searchId
+  );
+};
+
+// Check if driver portal is currently open
+export const isPortalOpen = (): boolean => {
+  const portalOpen = localStorage.getItem('driverPortalOpen') === 'true';
+  const cutoffTime = getCutoffTime();
+  
+  if (!portalOpen || !cutoffTime) {
+    return false;
+  }
+  
+  return new Date() < cutoffTime;
+};
+
+// Get cutoff time from localStorage
+export const getCutoffTime = (): Date | null => {
+  const cutoffString = localStorage.getItem('cutoffAt');
+  if (!cutoffString) return null;
+  
+  const cutoffTime = new Date(cutoffString);
+  return isNaN(cutoffTime.getTime()) ? null : cutoffTime;
+};
+
+// Check if admin is logged in
+export const isAdminLoggedIn = (): boolean => {
+  return localStorage.getItem('adminLoggedIn') === 'true';
+};
+
+// Admin login with password check
+export const loginAdmin = (password: string): boolean => {
+  // Simple password check - in production, use proper authentication
+  const validPasswords = ['admin123', 'jssadmin', 'password123'];
+  
+  if (validPasswords.includes(password)) {
+    localStorage.setItem('adminLoggedIn', 'true');
+    localStorage.setItem('adminLoginTime', new Date().toISOString());
+    return true;
+  }
+  
+  return false;
+};
+
+// Admin logout
+export const logoutAdmin = (): void => {
+  localStorage.removeItem('adminLoggedIn');
+  localStorage.removeItem('adminLoginTime');
+};
+
+// Set driver session
+export const setDriverSession = (driverId: string): void => {
+  localStorage.setItem('currentDriverId', driverId);
+  localStorage.setItem('driverLoginTime', new Date().toISOString());
+};
+
+// Clear driver session
+export const clearDriverSession = (): void => {
+  localStorage.removeItem('currentDriverId');
+  localStorage.removeItem('driverLoginTime');
+};
+
+// Portal management functions
+export const openPortal = (cutoffTime: Date): void => {
+  localStorage.setItem('driverPortalOpen', 'true');
+  localStorage.setItem('cutoffAt', cutoffTime.toISOString());
+  localStorage.setItem('portalOpenedAt', new Date().toISOString());
+};
+
+export const closePortal = (): void => {
+  localStorage.setItem('driverPortalOpen', 'false');
+  localStorage.setItem('portalClosedAt', new Date().toISOString());
+};
+
+// Get formatted cutoff time for display
+export const getFormattedCutoffTime = (): string => {
+  const cutoffTime = getCutoffTime();
+  if (!cutoffTime) return 'Not set';
+  
+  return cutoffTime.toLocaleString('en-US', {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+};
+
+// Check if driver has submitted preferences
+export const hasDriverSubmittedPreferences = (driverId: string): boolean => {
+  const store = useDriverStore.getState();
+  const preferences = store.getDriverPreferences(driverId);
+  return preferences.length > 0;
+};
+
+// Get time remaining until cutoff
+export const getTimeUntilCutoff = (): string => {
+  const cutoffTime = getCutoffTime();
+  if (!cutoffTime) return 'No cutoff set';
+  
+  const now = new Date();
+  const timeLeft = cutoffTime.getTime() - now.getTime();
+  
+  if (timeLeft <= 0) return 'Cutoff passed';
+  
+  const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+  const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m remaining`;
+  } else {
+    return `${minutes}m remaining`;
+  }
+};
+
+--- FILE: src/lib/utils.ts ---
+import { type ClassValue, clsx } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+// Format time for display
+export const formatTime = (timeString: string): string => {
+  try {
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${minutes} ${ampm}`;
+  } catch {
+    return timeString;
+  }
+};
+
+// Calculate duration between two times
+export const calculateDuration = (startTime: string, endTime: string): string => {
+  try {
+    const [startHours, startMinutes] = startTime.split(':').map(Number);
+    const [endHours, endMinutes] = endTime.split(':').map(Number);
+    
+    const startTotalMinutes = startHours * 60 + startMinutes;
+    const endTotalMinutes = endHours * 60 + endMinutes;
+    
+    let duration = endTotalMinutes - startTotalMinutes;
+    if (duration < 0) duration += 24 * 60; // Handle overnight shifts
+    
+    const hours = Math.floor(duration / 60);
+    const minutes = duration % 60;
+    
+    return `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`.trim();
+  } catch {
+    return 'N/A';
+  }
+};
+
+// Generate unique ID
+export const generateId = (prefix: string = ''): string => {
+  const timestamp = Date.now().toString(36);
+  const randomStr = Math.random().toString(36).substr(2, 5);
+  return `${prefix}${timestamp}${randomStr}`;
+};
+
+// Debounce function for search inputs
+export const debounce = <T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): ((...args: Parameters<T>) => void) => {
+  let timeout: NodeJS.Timeout;
+  
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+};
+
+// Sort drivers by seniority
+export const sortDriversBySeniority = (drivers: any[]) => {
+  return [...drivers].sort((a, b) => b.seniority - a.seniority);
+};
+
+// Format date for display
+export const formatDateTime = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return dateString;
+  }
+};

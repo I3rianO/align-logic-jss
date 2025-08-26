@@ -1,0 +1,24 @@
+// Essential Production Files
+index.html
+package.json
+vite.config.ts
+tsconfig.json
+tailwind.config.js
+postcss.config.js
+components.json
+vercel.json
+
+// Source Code
+src/
+public/
+
+// Build Output
+dist/
+
+// Documentation for Production
+README.md
+USER_GUIDE.md
+PRODUCTION_DEPLOYMENT.md
+
+// Configuration Files
+.gitignore

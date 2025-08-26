@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/admin", "destination": "/" },
+    { "source": "/admin/(.*)", "destination": "/" }
+  ],
+  "redirects": [
+    { "source": "/admin-dashboard", "destination": "/admin", "permanent": false }
+  ]
+}

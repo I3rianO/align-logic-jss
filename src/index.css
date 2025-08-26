@@ -1,0 +1,457 @@
+/**
+ * **IMPORTANT** Never break the original structure, only add highly customized new styles
+ */
+
+/* Import admin excel grid styles */
+@import url('./components/admin/excel-grid.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 15%; /* Darker than original for better contrast */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 15%;
+    --primary: 212 100% 19%; /* Deep navy blue: #002F5F */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 214 94% 79%; /* Light blue: #93c5fd */
+    --secondary-foreground: 212 100% 19%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 35%; /* Darker than original for better readability */
+    --accent: 213 94% 68%; /* Softer blue: #60a5fa */
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 212 100% 19%;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+    --section-bg: 210 33% 98%; /* Subtle background: #f7f9fa */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+    --jss-yellow: 44 100% 50%; /* JSS yellow accent */
+    --footer-bg: 212 100% 14%; /* Darker blue for footer */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-[#f7f9fa] text-[#222]; /* Darker text color for better contrast */
+    font-family: 'Segoe UI', 'Helvetica Neue', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.8;
+    letter-spacing: 0.015em; /* Increased letter spacing for better readability */
+  }
+  /* Reset any margin/padding on body to fix any layout issues */
+  body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+  }
+  #root {
+    min-height: 100vh;
+  }
+  
+  /* Typography enhancements */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    line-height: 1.3;
+    letter-spacing: 0.01em;
+  }
+  
+  h1 {
+    @apply text-4xl md:text-5xl;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+  }
+  
+  h2 {
+    @apply text-3xl md:text-4xl;
+    letter-spacing: -0.005em;
+    font-weight: 700;
+  }
+  
+  h3 {
+    @apply text-2xl;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  
+  p {
+    @apply max-w-[700px];
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+    color: #222; /* Darker color for better readability */
+  }
+
+  /* Links */
+  a {
+    @apply text-accent hover:text-accent/80 transition-colors;
+    font-weight: 500; /* Slightly bolder links for visibility */
+  }
+
+  /* Section spacing */
+  section {
+    @apply py-16 md:py-24;
+  }
+}
+
+@layer components {
+  .jss-container {
+    @apply container mx-auto px-4 md:px-8 max-w-7xl;
+  }
+  
+  .jss-card {
+    @apply bg-white text-card-foreground rounded-lg border shadow-[rgba(0,0,0,0.04)_0px_2px_8px] p-6 hover:shadow-[rgba(0,0,0,0.1)_0px_8px_16px] transition-shadow duration-200;
+    border-radius: 8px;
+  }
+  
+  .jss-header {
+    @apply bg-primary text-white py-6 shadow-md border-b border-white/10;
+  }
+  
+  .jss-footer {
+    @apply py-8 bg-[hsl(var(--footer-bg))] text-white;
+  }
+
+  .jss-btn-primary {
+    @apply bg-[#3b82f6] text-white hover:bg-[#3b82f6]/90 rounded-md px-5 py-2.5 font-medium transition-all duration-200 shadow-sm hover:shadow-md;
+    border-radius: 6px;
+  }
+  
+  .jss-btn-secondary {
+    @apply border-2 border-[#3b82f6] text-[#3b82f6] hover:bg-[#93c5fd]/20 rounded-md px-5 py-2.5 font-medium transition-all duration-200;
+    border-radius: 6px;
+  }
+
+  .jss-btn-outline {
+    @apply bg-transparent border-2 border-[#3b82f6] text-[#3b82f6] hover:bg-[#93c5fd]/20 rounded-md px-5 py-2.5 font-medium transition-all duration-200;
+    border-radius: 6px;
+  }
+
+  .jss-input {
+    @apply rounded-md border border-[#cbd5e1] bg-transparent px-4 py-3 text-sm shadow-sm transition-colors duration-200
+    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-2 focus-visible:border-[#3b82f6];
+    border-radius: 6px;
+  }
+
+  /* Alternating section backgrounds */
+  .jss-section-alt {
+    @apply bg-[#f7f9fa];
+  }
+
+  /* Custom styles for JSS header with image background */
+  .jss-hero-header {
+    @apply bg-primary text-white relative;
+    background-image: url('https://images.unsplash.com/photo-1517960413843-0aee8e2b3285?w=1200&h=300&fit=crop');
+    background-size: cover;
+    background-position: center;
+  }
+
+  .jss-hero-header::before {
+    content: '';
+    @apply absolute inset-0 bg-primary opacity-80;
+  }
+
+  .jss-hero-content {
+    @apply relative z-10 py-16 text-center;
+  }
+
+  /* Active tab indication */
+  .jss-tab-active {
+    @apply border-b-2 border-[#3b82f6];
+  }
+
+  /* Special icon color for job selection system */
+  .jss-icon {
+    @apply text-[#60a5fa];
+  }
+
+  /* Shadowed cards with hover effect */
+  .jss-card-interactive {
+    @apply bg-white rounded-lg border p-6 shadow-[rgba(0,0,0,0.04)_0px_2px_8px] transition-all duration-200 
+    hover:shadow-[rgba(0,0,0,0.1)_0px_8px_16px] hover:border-[#93c5fd];
+    border-radius: 8px;
+  }
+
+  /* Badge styles */
+  .jss-badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors duration-200;
+  }
+
+  .jss-badge-primary {
+    @apply bg-[#3b82f6]/20 text-[#1e5bb9]; /* Darker text and higher contrast background */
+  }
+
+  .jss-badge-secondary {
+    @apply bg-[#93c5fd]/40 text-[#1e5bb9]; /* Darker text and higher contrast background */
+  }
+
+  /* Status chips/pills */
+  .jss-status-available {
+    @apply px-3 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-800 transition-all duration-200;
+  }
+
+  .jss-status-unavailable {
+    @apply px-3 py-1 text-sm font-semibold rounded-full bg-red-100 text-red-800 transition-all duration-200;
+  }
+  
+  /* Admin specific styling */
+  .admin-container {
+    @apply container mx-auto px-6 md:px-8 py-12;
+    max-width: 1400px;
+  }
+  
+  .admin-card {
+    @apply bg-white rounded-lg border shadow-[rgba(0,0,0,0.04)_0px_2px_8px] p-6 hover:shadow-[rgba(0,0,0,0.08)_0px_4px_12px] transition-all duration-200;
+    border-radius: 8px;
+  }
+  
+  .admin-section {
+    @apply py-12;
+  }
+  
+  .admin-table {
+    @apply w-full;
+  }
+  
+  .admin-table th {
+    @apply px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider bg-[#f7f9fa] text-[#222]; /* Increased size and darker color */
+    letter-spacing: 0.05em;
+  }
+  
+  .admin-table td {
+    @apply px-6 py-4 whitespace-nowrap text-base; /* Increased from text-sm to text-base */
+  }
+  
+  .admin-table tr:nth-child(even) {
+    @apply bg-[#f9fbfc];
+  }
+  
+  .admin-table tr:hover {
+    @apply bg-[#f0f7ff] transition-colors duration-200;
+  }
+  
+  .admin-input {
+    @apply rounded-md border border-[#cbd5e1] bg-transparent px-4 py-3 text-sm shadow-sm transition-all duration-200
+    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:border-[#3b82f6] focus-visible:ring-offset-2;
+    border-radius: 6px;
+  }
+  
+  .admin-btn-primary {
+    @apply bg-[#3b82f6] text-white hover:bg-[#3b82f6]/90 rounded-md px-5 py-2.5 font-medium transition-all duration-200 shadow-sm hover:shadow-md;
+    border-radius: 6px;
+  }
+  
+  .admin-btn-secondary {
+    @apply border border-[#3b82f6] text-[#3b82f6] hover:bg-[#93c5fd]/20 rounded-md px-5 py-2.5 font-medium transition-all duration-200;
+    border-radius: 6px;
+  }
+  
+  .admin-header {
+    @apply text-2xl font-bold mb-6 text-[#222]; /* Darker text color */
+    letter-spacing: 0.01em;
+  }
+  
+  .admin-subheader {
+    @apply text-xl font-semibold mb-4 text-[#222]; /* Darker text color */
+    letter-spacing: 0.01em;
+  }
+
+  /* Enhanced styles for better readability for older drivers */
+  .text-xs {
+    @apply text-sm; /* Increase text-xs to text-sm */
+    letter-spacing: 0.02em; /* Slightly increased letter spacing */
+  }
+
+  .text-sm {
+    @apply text-base; /* Increase text-sm to text-base */
+    letter-spacing: 0.015em; /* Slightly increased letter spacing */
+  }
+
+  .text-muted-foreground {
+    @apply text-[#444]; /* Darker color for muted text */
+    font-weight: 450; /* Slightly bolder than normal */
+  }
+
+  /* Ensure table text is more readable */
+  table {
+    @apply text-[#222]; /* Darker text in tables */
+  }
+
+  table th {
+    font-weight: 600; /* Bolder headers */
+  }
+
+  /* Form labels with better contrast */
+  label {
+    @apply text-[#222] font-medium;
+  }
+
+  /* Ensure badge text is readable */
+  .badge, .rounded-full {
+    font-weight: 600;
+  }
+
+  /* Excel-like grid styling */
+  .excel-grid {
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    background: white;
+    border: 1px solid #e2e8f0;
+  }
+
+  .excel-grid-header {
+    display: flex;
+    font-weight: 600;
+    background-color: #f0f7ff;
+    border-bottom: 1px solid #e2e8f0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 0.75rem 0;
+  }
+
+  .excel-grid-header > div {
+    padding: 0 1rem;
+    text-align: left;
+    user-select: none;
+    font-size: 0.875rem;
+    color: #222;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .excel-grid-body {
+    max-height: 600px;
+    overflow-y: auto;
+  }
+
+  .excel-grid-body > div {
+    border-bottom: 1px solid #e2e8f0;
+    transition: background-color 0.15s;
+  }
+
+  .excel-grid-body > div:hover {
+    background-color: #f5f8ff;
+  }
+
+  .excel-grid-body > div:last-child {
+    border-bottom: none;
+  }
+  
+  /* Data grid component styles */
+  .data-grid {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 14px;
+    background-color: white;
+  }
+
+  .data-grid-body {
+    max-height: 500px;
+    overflow-y: auto;
+  }
+  
+  .data-grid-body > div:hover {
+    background-color: #f5f8ff;
+  }
+
+  /* Print styles for driver assignments */
+  .print-document {
+    background-color: white;
+    padding: 2rem;
+    max-width: 100%;
+    margin: 0 auto;
+    page-break-inside: avoid;
+  }
+
+  .print-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+  }
+
+  .print-table th {
+    background-color: #f0f7ff;
+    padding: 10px;
+    border: 1px solid #ddd;
+    font-weight: bold;
+    text-align: left;
+  }
+
+  .print-table td {
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+  }
+
+  .print-table tr:nth-child(even) {
+    background-color: #f9f9f9;
+  }
+
+  .print-footer {
+    margin-top: 2rem;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #666;
+  }
+
+  @media print {
+    body {
+      background: white;
+      font-size: 12pt;
+    }
+
+    .no-print, .no-print * {
+      display: none !important;
+    }
+
+    .print-document {
+      padding: 0;
+      max-width: 100%;
+    }
+
+    .print-table {
+      page-break-inside: avoid;
+    }
+
+    .print-table th {
+      background-color: #f0f0f0 !important;
+      color: black !important;
+    }
+
+    @page {
+      margin: 1cm;
+    }
+  }
+}

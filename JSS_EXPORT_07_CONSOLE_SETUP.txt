@@ -1,0 +1,321 @@
+=====================================
+JSS UI EXPORT - PART 7: CONSOLE SETUP & INSTRUCTIONS
+=====================================
+
+This file contains console commands for setup and testing instructions.
+
+=====================================
+CONSOLE COMMANDS FOR LOCALSTORAGE SETUP
+=====================================
+
+Copy and paste these commands in your browser's Developer Console (F12 → Console tab):
+
+// === SEED DRIVERS DATA ===
+localStorage.setItem('drivers', JSON.stringify([
+  {
+    "id": "driver_1",
+    "name": "John Smith", 
+    "driverId": "D001",
+    "employeeId": "EMP001",
+    "seniority": 8,
+    "status": "active"
+  },
+  {
+    "id": "driver_2",
+    "name": "Emily Davis",
+    "driverId": "D002", 
+    "employeeId": "EMP002",
+    "seniority": 5,
+    "status": "active"
+  },
+  {
+    "id": "driver_3",
+    "name": "Robert Wilson",
+    "driverId": "D003",
+    "employeeId": "EMP003", 
+    "seniority": 12,
+    "status": "active"
+  },
+  {
+    "id": "driver_4",
+    "name": "Sarah Johnson",
+    "driverId": "D004",
+    "employeeId": "EMP004",
+    "seniority": 3,
+    "status": "active"
+  },
+  {
+    "id": "driver_5", 
+    "name": "Mike Brown",
+    "driverId": "D005",
+    "employeeId": "EMP005",
+    "seniority": 15,
+    "status": "active"
+  }
+]));
+
+// === SEED JOBS DATA ===
+localStorage.setItem('jobs', JSON.stringify([
+  {
+    "id": "job_1",
+    "title": "Route 8 - Downtown Express",
+    "route": "Route 8",
+    "shift": "6:00 AM - 2:00 PM",
+    "status": "active",
+    "description": "Downtown business district route with high passenger volume"
+  },
+  {
+    "id": "job_2", 
+    "title": "Route 15 - Airport Shuttle",
+    "route": "Route 15",
+    "shift": "10:00 AM - 6:00 PM", 
+    "status": "active",
+    "description": "Airport shuttle service with premium pay"
+  },
+  {
+    "id": "job_3",
+    "title": "Route 3 - University Loop",
+    "route": "Route 3", 
+    "shift": "7:00 AM - 3:00 PM",
+    "status": "active",
+    "description": "University campus route, busy during school terms"
+  },
+  {
+    "id": "job_4",
+    "title": "Route 22 - Shopping District", 
+    "route": "Route 22",
+    "shift": "12:00 PM - 8:00 PM",
+    "status": "active",
+    "description": "Shopping center route with evening hours"
+  },
+  {
+    "id": "job_5",
+    "title": "Route 11 - Residential",
+    "route": "Route 11", 
+    "shift": "5:30 AM - 1:30 PM",
+    "status": "active",
+    "description": "Quiet residential areas, good for senior drivers"
+  },
+  {
+    "id": "job_6",
+    "title": "Route 7 - Hospital Complex",
+    "route": "Route 7",
+    "shift": "8:00 AM - 4:00 PM", 
+    "status": "active",
+    "description": "Medical district route serving hospitals and clinics"
+  },
+  {
+    "id": "job_7",
+    "title": "Route 19 - Industrial Park",
+    "route": "Route 19",
+    "shift": "6:30 AM - 2:30 PM",
+    "status": "active", 
+    "description": "Industrial area route for shift workers"
+  },
+  {
+    "id": "job_8",
+    "title": "Route 25 - Night Owl",
+    "route": "Route 25",
+    "shift": "11:00 PM - 7:00 AM",
+    "status": "active",
+    "description": "Night shift route with shift differential pay"
+  }
+]));
+
+// === SET PORTAL STATUS (OPEN) ===
+localStorage.setItem('driverPortalOpen', 'true');
+localStorage.setItem('cutoffAt', new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()); // 7 days from now
+
+// === SEED SOME DRIVER PREFERENCES ===
+localStorage.setItem('driverPreferences', JSON.stringify({
+  "driver_1": ["job_2", "job_1", "job_3"], // John Smith prefers Airport, Downtown, University
+  "driver_2": ["job_1", "job_3", "job_7"], // Emily Davis prefers Downtown, University, Industrial
+  "driver_3": ["job_5", "job_7", "job_1"]  // Robert Wilson prefers Residential, Industrial, Downtown
+}));
+
+// === SEED JOB ASSIGNMENTS (OPTIONAL) ===
+localStorage.setItem('jobAssignments', JSON.stringify({
+  "driver_1": "job_2", // John Smith assigned to Airport Shuttle
+  "driver_2": "job_1", // Emily Davis assigned to Downtown Express  
+  "driver_3": "job_5"  // Robert Wilson assigned to Residential
+}));
+
+console.log("✅ JSS System data seeded successfully!");
+console.log("🚍 5 drivers loaded");
+console.log("💼 8 jobs loaded"); 
+console.log("✋ Portal is OPEN for selections");
+console.log("📝 Sample preferences loaded for 3 drivers");
+
+
+=====================================
+TESTING DIFFERENT SCENARIOS
+=====================================
+
+// === CLOSE THE PORTAL (Test cutoff enforcement) ===
+localStorage.setItem('driverPortalOpen', 'false');
+localStorage.setItem('cutoffAt', new Date(Date.now() - 3600000).toISOString()); // 1 hour ago
+console.log("🔒 Portal is now CLOSED - drivers can view but not edit");
+
+// === REOPEN THE PORTAL ===  
+localStorage.setItem('driverPortalOpen', 'true');
+localStorage.setItem('cutoffAt', new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()); // 24 hours from now
+console.log("🔓 Portal is now OPEN - drivers can edit preferences");
+
+// === TEST DRIVER SIGN-IN (Sign in as John Smith) ===
+localStorage.setItem('currentDriverId', 'D001'); // Use driverId
+console.log("👤 Signed in as John Smith (D001)");
+
+// === TEST DIFFERENT DRIVER IDs ===
+localStorage.setItem('currentDriverId', 'EMP002'); // Use employeeId 
+console.log("👤 Signed in as Emily Davis (EMP002)");
+
+localStorage.setItem('currentDriverId', '3'); // Use system id
+console.log("👤 Signed in as Robert Wilson (ID: 3)");
+
+// === SIGN OUT DRIVER ===
+localStorage.removeItem('currentDriverId');
+console.log("👋 Driver signed out");
+
+// === ADMIN LOGIN (Test admin access) ===
+localStorage.setItem('adminLoggedIn', 'true');
+localStorage.setItem('adminUser', 'admin');
+console.log("🛡️ Admin logged in - access granted to admin routes");
+
+// === ADMIN LOGOUT ===
+localStorage.removeItem('adminLoggedIn');
+localStorage.removeItem('adminUser');
+console.log("🚪 Admin logged out");
+
+
+=====================================
+CHECKING CURRENT STATE
+=====================================
+
+// === VIEW CURRENT DATA ===
+console.log("=== CURRENT SYSTEM STATE ===");
+console.log("Drivers:", JSON.parse(localStorage.getItem('drivers') || '[]'));
+console.log("Jobs:", JSON.parse(localStorage.getItem('jobs') || '[]'));
+console.log("Preferences:", JSON.parse(localStorage.getItem('driverPreferences') || '{}'));
+console.log("Assignments:", JSON.parse(localStorage.getItem('jobAssignments') || '{}'));
+console.log("Portal Open:", localStorage.getItem('driverPortalOpen'));
+console.log("Cutoff At:", localStorage.getItem('cutoffAt'));
+console.log("Current Driver:", localStorage.getItem('currentDriverId'));
+console.log("Admin Logged In:", localStorage.getItem('adminLoggedIn'));
+
+// === CLEAR ALL DATA (RESET SYSTEM) ===
+localStorage.clear();
+console.log("🗑️ All data cleared - system reset to empty state");
+
+
+=====================================
+HOW TO USE THIS EXPORT
+=====================================
+
+STEP 1: CREATE PROJECT FILES
+============================
+Use the files from JSS_EXPORT_01_CORE.txt through JSS_EXPORT_06_ADMIN_PAGES_CONTINUED.txt to create all the necessary project files in your React project.
+
+Required file structure:
+```
+src/
+├── components/
+│   ├── ui/           (from shadcn/ui - pre-configured)
+│   ├── JssLogo.tsx
+│   └── AdminSidebar.tsx
+├── layouts/
+│   ├── MainLayout.tsx
+│   └── AdminLayout.tsx  
+├── pages/
+│   ├── HomePage.tsx
+│   ├── NotFoundPage.tsx
+│   ├── JobPreferencesPage.tsx
+│   ├── AdminPortalPage.tsx
+│   └── admin/
+│       ├── EditDriversPage.tsx
+│       ├── EditJobsPage.tsx
+│       ├── LivePicksSnapshotPage.tsx
+│       ├── FinalAssignmentsPage.tsx
+│       ├── StatisticsPage.tsx
+│       ├── ConflictResolutionPage.tsx
+│       ├── DisputeResolutionPage.tsx
+│       ├── ActivityLogPage.tsx
+│       ├── SystemSettingsPage.tsx
+│       └── MasterAdminPage.tsx
+├── store/
+│   └── driverStore.ts
+├── utils/
+│   ├── session.ts
+│   └── formatters.ts
+├── App.tsx
+├── main.tsx
+├── index.css
+└── ...
+```
+
+STEP 2: INSTALL DEPENDENCIES
+============================
+The package.json in JSS_EXPORT_01_CORE.txt contains all required dependencies. Make sure these are installed:
+- React 18 + TypeScript + Vite
+- Tailwind CSS + shadcn/ui components
+- Zustand for state management
+- React Router v6 for routing
+- Lucide React for icons
+- Additional UI libraries as specified
+
+STEP 3: SEED THE DATA
+=====================
+1. Open your browser and navigate to your JSS application
+2. Open Developer Tools (F12) 
+3. Go to the Console tab
+4. Copy and paste the "SEED DRIVERS DATA" command above
+5. Copy and paste the "SEED JOBS DATA" command above
+6. Copy and paste the "SET PORTAL STATUS" command above
+7. Optionally copy the preferences and assignments commands
+
+STEP 4: TEST THE APPLICATION
+============================
+1. Visit the home page - should show Driver Portal and Admin Portal cards
+2. Test Driver Portal:
+   - Click "Driver Portal" 
+   - Should show sign-in form
+   - Sign in with: D001, EMP001, or 1 (John Smith)
+   - Should show job preferences interface
+   - Test with portal open and closed (use console commands above)
+
+3. Test Admin Portal:
+   - Click "Admin Portal"
+   - Sign in with: username="admin", password="admin123"
+   - Should redirect to admin dashboard with sidebar
+   - Navigate through all admin pages
+
+STEP 5: VERIFY FUNCTIONALITY  
+============================
+✅ Driver sign-in with multiple ID formats (driverId, employeeId, system id)
+✅ Portal cutoff enforcement (open vs closed states)
+✅ Job preference selection and saving
+✅ Admin login and route protection
+✅ All admin pages load without errors
+✅ Data persistence in localStorage
+✅ Responsive design on mobile and desktop
+
+STEP 6: CUSTOMIZATION
+=====================
+- Update the mountain logo in JssLogo.tsx with your company branding
+- Modify color scheme in index.css (CSS variables)
+- Adjust job and driver data structure as needed
+- Customize admin permissions and roles
+- Add additional routes or features as required
+
+TROUBLESHOOTING
+===============
+- If drivers show as empty: Run seed commands in console
+- If admin routes don't work: Check localStorage.adminLoggedIn = "true"
+- If driver can't sign in: Verify driver data exists and IDs match
+- If portal seems closed: Check cutoffAt date is in future
+- If preferences don't save: Check Zustand store is working
+
+The system is now ready for production use with real backend integration!
+
+=====================================
+END OF EXPORT
+=====================================

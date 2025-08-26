@@ -1,0 +1,88 @@
+===========================================
+    JOB SELECTION SYSTEM (JSS) UI EXPORT
+===========================================
+
+COMPLETE COPY-PASTE READY CODE EXPORT
+Framework: React 18 + TypeScript + Vite + Tailwind + shadcn/ui + Zustand + React Router v6
+
+This export is split into multiple files for easier handling.
+Read and copy files in the following order:
+
+===========================================
+FILE READING ORDER:
+===========================================
+
+1. JSS_EXPORT_01_CORE.txt
+   - Project setup files (package.json, vite.config.ts, etc.)
+   - Index files (main.tsx, index.html, index.css)
+   - App.tsx with routing
+
+2. JSS_EXPORT_02_STORE_UTILS.txt
+   - driverStore.ts (Zustand store with seed data)
+   - session.ts (driver session utilities)
+   - Other utility functions
+
+3. JSS_EXPORT_03_LAYOUTS_COMPONENTS.txt
+   - MainLayout.tsx (with <Outlet />)
+   - AdminLayout.tsx (sidebar + <Outlet />)
+   - JssLogo.tsx
+   - AdminSidebar.tsx
+
+4. JSS_EXPORT_04_MAIN_PAGES.txt
+   - HomePage.tsx (Driver Portal + Admin Portal cards)
+   - NotFoundPage.tsx
+   - JobPreferencesPage.tsx (driver portal with cutoff logic)
+   - AdminPortalPage.tsx (admin login)
+
+5. JSS_EXPORT_05_ADMIN_PAGES.txt
+   - EditDriversPage.tsx
+   - EditJobsPage.tsx
+   - LivePicksSnapshotPage.tsx
+   - FinalAssignmentsPage.tsx
+   - StatisticsPage.tsx
+
+6. JSS_EXPORT_06_ADMIN_PAGES_CONTINUED.txt
+   - ConflictResolutionPage.tsx
+   - DisputeResolutionPage.tsx
+   - ActivityLogPage.tsx
+   - SystemSettingsPage.tsx
+   - MasterAdminPage.tsx
+
+7. JSS_EXPORT_07_CONSOLE_SETUP.txt
+   - Console commands for localStorage seeding
+   - Testing instructions for cutoff open/closed states
+   - Troubleshooting guide
+
+===========================================
+IMPLEMENTATION INSTRUCTIONS:
+===========================================
+
+1. Create a new React project or use existing
+2. Copy files from each export in order
+3. Run the console commands from file 07 to seed data
+4. Test both driver and admin portals
+
+===========================================
+KEY FEATURES INCLUDED:
+===========================================
+
+✅ Driver session logic (localStorage.currentDriverId matching)
+✅ Portal cutoff enforcement with amber banner when closed
+✅ Admin route guards (localStorage.adminLoggedIn)
+✅ Complete Zustand store with seed data
+✅ Mountain/blue theme consistent with preview
+✅ All 10 admin pages with full functionality
+✅ No vacation UI (as requested)
+✅ Clean compile with vite build
+
+===========================================
+ROUTE STRUCTURE:
+===========================================
+
+/ → HomePage (Driver Portal + Admin Portal cards)
+/driver-portal → JobPreferencesPage
+/admin-portal → AdminPortalPage
+/admin/* → Protected admin routes
+/* → NotFoundPage
+
+Next: Open JSS_EXPORT_01_CORE.txt to begin implementation.

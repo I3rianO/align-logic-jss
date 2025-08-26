@@ -1,0 +1,1468 @@
+=====================================
+JSS UI EXPORT - PART 5: ADMIN PAGES (1-5)
+=====================================
+
+This file contains the first 5 admin pages:
+- EditDriversPage.tsx
+- EditJobsPage.tsx  
+- LivePicksSnapshotPage.tsx
+- FinalAssignmentsPage.tsx
+- StatisticsPage.tsx
+
+--- FILE: src/pages/admin/EditDriversPage.tsx ---
+import { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { useDriverStore } from '@/store/driverStore';
+import { Plus, Edit2, Trash2, Save, X, User } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
+type Driver = {
+  id: string;
+  name: string;
+  driverId: string;
+  employeeId: string;
+  seniority: number;
+  status: 'active' | 'inactive';
+};
+
+export function EditDriversPage() {
+  const { toast } = useToast();
+  const { drivers, addDriver, updateDriver, deleteDriver } = useDriverStore();
+  
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [formData, setFormData] = useState<Partial<Driver>>({});
+
+  const handleEdit = (driver: Driver) => {
+    setEditingId(driver.id);
+    setFormData(driver);
+  };
+
+  const handleSave = () => {
+    if (!formData.name?.trim() || !formData.driverId?.trim() || !formData.employeeId?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Name, Driver ID, and Employee ID are required.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (isAdding) {
+      const newDriver: Driver = {
+        id: `driver_${Date.now()}`,
+        name: formData.name.trim(),
+        driverId: formData.driverId.trim(),
+        employeeId: formData.employeeId.trim(),
+        seniority: formData.seniority || 0,
+        status: formData.status || 'active'
+      };
+      addDriver(newDriver);
+      toast({
+        title: "Driver Added",
+        description: `${newDriver.name} has been added successfully.`,
+      });
+      setIsAdding(false);
+    } else if (editingId && formData.id) {
+      const updatedDriver = formData as Driver;
+      updateDriver(updatedDriver);
+      toast({
+        title: "Driver Updated",
+        description: `${updatedDriver.name} has been updated successfully.`,
+      });
+      setEditingId(null);
+    }
+    
+    setFormData({});
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setIsAdding(false);
+    setFormData({});
+  };
+
+  const handleDelete = (driver: Driver) => {
+    if (window.confirm(`Are you sure you want to delete ${driver.name}?`)) {
+      deleteDriver(driver.id);
+      toast({
+        title: "Driver Deleted",
+        description: `${driver.name} has been removed from the system.`,
+      });
+    }
+  };
+
+  const startAdding = () => {
+    setIsAdding(true);
+    setFormData({
+      status: 'active',
+      seniority: 0
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Edit Drivers</h1>
+          <p className="text-slate-600">Manage driver information and status</p>
+        </div>
+        
+        <Button 
+          onClick={startAdding}
+          disabled={isAdding || editingId !== null}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Driver
+        </Button>
+      </div>
+
+      <Card className="border-0 shadow-md">
+        <CardHeader>
+          <CardTitle>Driver List</CardTitle>
+          <CardDescription>
+            Total drivers: {drivers.length}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Add New Driver Form */}
+            {isAdding && (
+              <Card className="border-blue-200 bg-blue-50">
+                <CardContent className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <Input
+                      placeholder="Full Name"
+                      value={formData.name || ''}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    />
+                    <Input
+                      placeholder="Driver ID"
+                      value={formData.driverId || ''}
+                      onChange={(e) => setFormData({...formData, driverId: e.target.value})}
+                    />
+                    <Input
+                      placeholder="Employee ID"
+                      value={formData.employeeId || ''}
+                      onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Seniority"
+                      value={formData.seniority || ''}
+                      onChange={(e) => setFormData({...formData, seniority: parseInt(e.target.value) || 0})}
+                    />
+                    <div className="flex space-x-2">
+                      <Button onClick={handleSave} size="sm" className="bg-green-600 hover:bg-green-700">
+                        <Save className="w-4 h-4" />
+                      </Button>
+                      <Button onClick={handleCancel} variant="outline" size="sm">
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Driver List */}
+            {drivers.map((driver) => (
+              <Card key={driver.id} className="border-slate-200">
+                <CardContent className="pt-4">
+                  {editingId === driver.id ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                      <Input
+                        value={formData.name || ''}
+                        onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      />
+                      <Input
+                        value={formData.driverId || ''}
+                        onChange={(e) => setFormData({...formData, driverId: e.target.value})}
+                      />
+                      <Input
+                        value={formData.employeeId || ''}
+                        onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                      />
+                      <Input
+                        type="number"
+                        value={formData.seniority || ''}
+                        onChange={(e) => setFormData({...formData, seniority: parseInt(e.target.value) || 0})}
+                      />
+                      <div className="flex space-x-2">
+                        <Button onClick={handleSave} size="sm" className="bg-green-600 hover:bg-green-700">
+                          <Save className="w-4 h-4" />
+                        </Button>
+                        <Button onClick={handleCancel} variant="outline" size="sm">
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <User className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-slate-800">{driver.name}</h3>
+                          <p className="text-sm text-slate-600">
+                            Driver: {driver.driverId} | Employee: {driver.employeeId}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-4">
+                        <div className="text-right">
+                          <Badge variant={driver.status === 'active' ? 'default' : 'secondary'}>
+                            {driver.status}
+                          </Badge>
+                          <p className="text-sm text-slate-600 mt-1">Seniority: {driver.seniority}</p>
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <Button 
+                            onClick={() => handleEdit(driver)}
+                            variant="outline" 
+                            size="sm"
+                            disabled={editingId !== null || isAdding}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            onClick={() => handleDelete(driver)}
+                            variant="outline" 
+                            size="sm"
+                            disabled={editingId !== null || isAdding}
+                            className="text-red-600 hover:text-red-700 hover:border-red-300"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+--- FILE: src/pages/admin/EditJobsPage.tsx ---
+import { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { useDriverStore } from '@/store/driverStore';
+import { Plus, Edit2, Trash2, Save, X, Briefcase, MapPin, Clock } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
+type Job = {
+  id: string;
+  title: string;
+  route: string;
+  shift: string;
+  status: 'active' | 'inactive';
+  description?: string;
+};
+
+export function EditJobsPage() {
+  const { toast } = useToast();
+  const { jobs, addJob, updateJob, deleteJob } = useDriverStore();
+  
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [formData, setFormData] = useState<Partial<Job>>({});
+
+  const handleEdit = (job: Job) => {
+    setEditingId(job.id);
+    setFormData(job);
+  };
+
+  const handleSave = () => {
+    if (!formData.title?.trim() || !formData.route?.trim() || !formData.shift?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Title, Route, and Shift are required.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (isAdding) {
+      const newJob: Job = {
+        id: `job_${Date.now()}`,
+        title: formData.title.trim(),
+        route: formData.route.trim(),
+        shift: formData.shift.trim(),
+        status: formData.status || 'active',
+        description: formData.description?.trim() || ''
+      };
+      addJob(newJob);
+      toast({
+        title: "Job Added",
+        description: `${newJob.title} has been added successfully.`,
+      });
+      setIsAdding(false);
+    } else if (editingId && formData.id) {
+      const updatedJob = formData as Job;
+      updateJob(updatedJob);
+      toast({
+        title: "Job Updated",
+        description: `${updatedJob.title} has been updated successfully.`,
+      });
+      setEditingId(null);
+    }
+    
+    setFormData({});
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setIsAdding(false);
+    setFormData({});
+  };
+
+  const handleDelete = (job: Job) => {
+    if (window.confirm(`Are you sure you want to delete "${job.title}"?`)) {
+      deleteJob(job.id);
+      toast({
+        title: "Job Deleted",
+        description: `${job.title} has been removed from the system.`,
+      });
+    }
+  };
+
+  const startAdding = () => {
+    setIsAdding(true);
+    setFormData({
+      status: 'active'
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Edit Jobs</h1>
+          <p className="text-slate-600">Manage available job assignments</p>
+        </div>
+        
+        <Button 
+          onClick={startAdding}
+          disabled={isAdding || editingId !== null}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Job
+        </Button>
+      </div>
+
+      <Card className="border-0 shadow-md">
+        <CardHeader>
+          <CardTitle>Job Listings</CardTitle>
+          <CardDescription>
+            Total jobs: {jobs.length} | Active: {jobs.filter(j => j.status === 'active').length}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Add New Job Form */}
+            {isAdding && (
+              <Card className="border-blue-200 bg-blue-50">
+                <CardContent className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <Input
+                      placeholder="Job Title"
+                      value={formData.title || ''}
+                      onChange={(e) => setFormData({...formData, title: e.target.value})}
+                    />
+                    <Input
+                      placeholder="Route"
+                      value={formData.route || ''}
+                      onChange={(e) => setFormData({...formData, route: e.target.value})}
+                    />
+                    <Input
+                      placeholder="Shift (e.g., 6:00 AM - 2:00 PM)"
+                      value={formData.shift || ''}
+                      onChange={(e) => setFormData({...formData, shift: e.target.value})}
+                    />
+                    <select
+                      className="px-3 py-2 border border-slate-300 rounded-md"
+                      value={formData.status || 'active'}
+                      onChange={(e) => setFormData({...formData, status: e.target.value as 'active' | 'inactive'})}
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                  <Input
+                    placeholder="Description (optional)"
+                    value={formData.description || ''}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    className="mb-4"
+                  />
+                  <div className="flex space-x-2">
+                    <Button onClick={handleSave} size="sm" className="bg-green-600 hover:bg-green-700">
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Job
+                    </Button>
+                    <Button onClick={handleCancel} variant="outline" size="sm">
+                      <X className="w-4 h-4 mr-2" />
+                      Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Job List */}
+            {jobs.map((job) => (
+              <Card key={job.id} className="border-slate-200">
+                <CardContent className="pt-4">
+                  {editingId === job.id ? (
+                    <div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <Input
+                          value={formData.title || ''}
+                          onChange={(e) => setFormData({...formData, title: e.target.value})}
+                        />
+                        <Input
+                          value={formData.route || ''}
+                          onChange={(e) => setFormData({...formData, route: e.target.value})}
+                        />
+                        <Input
+                          value={formData.shift || ''}
+                          onChange={(e) => setFormData({...formData, shift: e.target.value})}
+                        />
+                        <select
+                          className="px-3 py-2 border border-slate-300 rounded-md"
+                          value={formData.status || 'active'}
+                          onChange={(e) => setFormData({...formData, status: e.target.value as 'active' | 'inactive'})}
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </div>
+                      <Input
+                        value={formData.description || ''}
+                        onChange={(e) => setFormData({...formData, description: e.target.value})}
+                        placeholder="Description (optional)"
+                        className="mb-4"
+                      />
+                      <div className="flex space-x-2">
+                        <Button onClick={handleSave} size="sm" className="bg-green-600 hover:bg-green-700">
+                          <Save className="w-4 h-4" />
+                        </Button>
+                        <Button onClick={handleCancel} variant="outline" size="sm">
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <Briefcase className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-slate-800 flex items-center space-x-2">
+                            <span>{job.title}</span>
+                            <Badge variant={job.status === 'active' ? 'default' : 'secondary'}>
+                              {job.status}
+                            </Badge>
+                          </h3>
+                          <div className="flex items-center space-x-4 text-sm text-slate-600 mt-1">
+                            <div className="flex items-center space-x-1">
+                              <MapPin className="w-4 h-4" />
+                              <span>{job.route}</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <Clock className="w-4 h-4" />
+                              <span>{job.shift}</span>
+                            </div>
+                          </div>
+                          {job.description && (
+                            <p className="text-sm text-slate-500 mt-1">{job.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex space-x-2">
+                        <Button 
+                          onClick={() => handleEdit(job)}
+                          variant="outline" 
+                          size="sm"
+                          disabled={editingId !== null || isAdding}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          onClick={() => handleDelete(job)}
+                          variant="outline" 
+                          size="sm"
+                          disabled={editingId !== null || isAdding}
+                          className="text-red-600 hover:text-red-700 hover:border-red-300"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+--- FILE: src/pages/admin/LivePicksSnapshotPage.tsx ---
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useDriverStore } from '@/store/driverStore';
+import { RefreshCw, Eye, Users, Briefcase, Clock } from 'lucide-react';
+import { formatTimeAgo } from '@/utils/formatters';
+
+export function LivePicksSnapshotPage() {
+  const { drivers, jobs, preferences } = useDriverStore();
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    const interval = setInterval(() => {
+      setLastUpdate(new Date());
+    }, 30000); // Update every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [autoRefresh]);
+
+  const handleRefresh = () => {
+    setLastUpdate(new Date());
+  };
+
+  // Calculate statistics
+  const totalDrivers = drivers.length;
+  const driversWithPicks = Object.keys(preferences).length;
+  const totalJobs = jobs.length;
+  const totalPicks = Object.values(preferences).reduce((sum, picks) => sum + picks.length, 0);
+
+  // Get detailed preference data
+  const preferenceDetails = drivers.map(driver => {
+    const driverPrefs = preferences[driver.id] || [];
+    const preferredJobs = driverPrefs.map(jobId => 
+      jobs.find(job => job.id === jobId)
+    ).filter(Boolean);
+
+    return {
+      driver,
+      preferences: driverPrefs,
+      preferredJobs,
+      pickCount: driverPrefs.length
+    };
+  }).sort((a, b) => b.pickCount - a.pickCount);
+
+  // Job popularity analysis
+  const jobPopularity = jobs.map(job => {
+    const selections = Object.values(preferences).filter(prefs => 
+      prefs.includes(job.id)
+    ).length;
+
+    const positions = Object.values(preferences).map(prefs => 
+      prefs.indexOf(job.id)
+    ).filter(pos => pos !== -1);
+
+    const avgPosition = positions.length > 0 
+      ? positions.reduce((sum, pos) => sum + (pos + 1), 0) / positions.length 
+      : 0;
+
+    return {
+      job,
+      selections,
+      avgPosition: Math.round(avgPosition * 10) / 10
+    };
+  }).sort((a, b) => b.selections - a.selections);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Live Picks Snapshot</h1>
+          <p className="text-slate-600">Real-time view of driver job preferences</p>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          <Button
+            variant="outline"
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={autoRefresh ? 'bg-green-50 border-green-200' : ''}
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            {autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+          </Button>
+          <Button onClick={handleRefresh} className="bg-blue-600 hover:bg-blue-700">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh Now
+          </Button>
+        </div>
+      </div>
+
+      <div className="text-sm text-slate-500">
+        Last updated: {formatTimeAgo(lastUpdate)} 
+        {autoRefresh && ' • Auto-refreshing every 30 seconds'}
+      </div>
+
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{driversWithPicks}</p>
+                <p className="text-sm text-slate-600">Drivers with picks</p>
+                <p className="text-xs text-slate-500">of {totalDrivers} total</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                <Briefcase className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{totalPicks}</p>
+                <p className="text-sm text-slate-600">Total picks made</p>
+                <p className="text-xs text-slate-500">{totalJobs} jobs available</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                <Clock className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">
+                  {totalPicks > 0 ? Math.round((totalPicks / totalDrivers) * 10) / 10 : 0}
+                </p>
+                <p className="text-sm text-slate-600">Avg picks per driver</p>
+                <p className="text-xs text-slate-500">participation rate</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                <RefreshCw className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">
+                  {Math.round(((driversWithPicks / totalDrivers) * 100))}%
+                </p>
+                <p className="text-sm text-slate-600">Completion rate</p>
+                <p className="text-xs text-slate-500">drivers participating</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Driver Preferences */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle>Driver Preferences</CardTitle>
+            <CardDescription>Current job selections by driver</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {preferenceDetails.map(({ driver, preferences, preferredJobs, pickCount }) => (
+                <div key={driver.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-slate-800">{driver.name}</h4>
+                    <p className="text-sm text-slate-600">
+                      {driver.driverId} • Seniority: {driver.seniority}
+                    </p>
+                    {preferredJobs.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {preferredJobs.slice(0, 3).map((job, index) => (
+                          <Badge key={job?.id || index} variant="secondary" className="text-xs">
+                            #{index + 1} {job?.title}
+                          </Badge>
+                        ))}
+                        {preferredJobs.length > 3 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{preferredJobs.length - 3} more
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <Badge variant={pickCount > 0 ? 'default' : 'secondary'}>
+                      {pickCount} picks
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Job Popularity */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle>Job Popularity</CardTitle>
+            <CardDescription>Most requested jobs and average preference position</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {jobPopularity.map(({ job, selections, avgPosition }) => (
+                <div key={job.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-slate-800">{job.title}</h4>
+                    <p className="text-sm text-slate-600">{job.route} • {job.shift}</p>
+                  </div>
+                  <div className="text-right">
+                    <Badge variant={selections > 0 ? 'default' : 'secondary'} className="mb-1">
+                      {selections} selections
+                    </Badge>
+                    {avgPosition > 0 && (
+                      <p className="text-xs text-slate-500">
+                        Avg position: #{avgPosition}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+--- FILE: src/pages/admin/FinalAssignmentsPage.tsx ---
+import { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useDriverStore } from '@/store/driverStore';
+import { Play, Download, RefreshCw, AlertTriangle, CheckCircle, Users, Briefcase } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
+export function FinalAssignmentsPage() {
+  const { toast } = useToast();
+  const { drivers, jobs, preferences, assignments, calculateJobAssignments } = useDriverStore();
+  
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [showUnassigned, setShowUnassigned] = useState(true);
+
+  const handleCalculateAssignments = async () => {
+    setIsCalculating(true);
+    try {
+      await calculateJobAssignments();
+      toast({
+        title: "Assignments Calculated",
+        description: "Job assignments have been generated successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Calculation Failed",
+        description: "An error occurred while calculating assignments.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsCalculating(false);
+    }
+  };
+
+  const handleExportAssignments = () => {
+    const assignmentData = Object.entries(assignments).map(([driverId, jobId]) => {
+      const driver = drivers.find(d => d.id === driverId);
+      const job = jobs.find(j => j.id === jobId);
+      return {
+        driverId: driver?.driverId || driverId,
+        driverName: driver?.name || 'Unknown',
+        employeeId: driver?.employeeId || 'Unknown',
+        seniority: driver?.seniority || 0,
+        jobId: job?.id || jobId,
+        jobTitle: job?.title || 'Unknown',
+        route: job?.route || 'Unknown',
+        shift: job?.shift || 'Unknown'
+      };
+    });
+
+    const csv = [
+      'Driver ID,Driver Name,Employee ID,Seniority,Job ID,Job Title,Route,Shift',
+      ...assignmentData.map(row => 
+        `${row.driverId},"${row.driverName}",${row.employeeId},${row.seniority},"${row.jobId}","${row.jobTitle}","${row.route}","${row.shift}"`
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `job_assignments_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Export Complete",
+      description: "Assignments have been exported to CSV file.",
+    });
+  };
+
+  // Calculate statistics
+  const totalDrivers = drivers.length;
+  const assignedDrivers = Object.keys(assignments).length;
+  const unassignedDrivers = totalDrivers - assignedDrivers;
+  const totalJobs = jobs.length;
+  const assignedJobs = new Set(Object.values(assignments)).size;
+  const unassignedJobs = totalJobs - assignedJobs;
+
+  // Get assignment details
+  const assignmentDetails = Object.entries(assignments).map(([driverId, jobId]) => {
+    const driver = drivers.find(d => d.id === driverId);
+    const job = jobs.find(j => j.id === jobId);
+    const driverPrefs = preferences[driverId] || [];
+    const preferenceRank = driverPrefs.indexOf(jobId) + 1;
+
+    return {
+      driver,
+      job,
+      preferenceRank: preferenceRank > 0 ? preferenceRank : null
+    };
+  }).filter(detail => detail.driver && detail.job)
+    .sort((a, b) => (a.driver?.seniority || 0) - (b.driver?.seniority || 0));
+
+  // Get unassigned drivers
+  const unassignedDriversList = drivers.filter(driver => 
+    !assignments[driver.id]
+  ).sort((a, b) => a.seniority - b.seniority);
+
+  // Get unassigned jobs
+  const assignedJobIds = new Set(Object.values(assignments));
+  const unassignedJobsList = jobs.filter(job => 
+    !assignedJobIds.has(job.id)
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Final Assignments</h1>
+          <p className="text-slate-600">Generate and manage final job assignments</p>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          <Button
+            onClick={() => setShowUnassigned(!showUnassigned)}
+            variant="outline"
+          >
+            {showUnassigned ? 'Hide' : 'Show'} Unassigned
+          </Button>
+          <Button
+            onClick={handleExportAssignments}
+            variant="outline"
+            disabled={assignedDrivers === 0}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button
+            onClick={handleCalculateAssignments}
+            disabled={isCalculating}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {isCalculating ? (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Calculating...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                Calculate Assignments
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{assignedDrivers}</p>
+                <p className="text-sm text-slate-600">Drivers assigned</p>
+                <p className="text-xs text-slate-500">of {totalDrivers} total</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{unassignedDrivers}</p>
+                <p className="text-sm text-slate-600">Drivers unassigned</p>
+                <p className="text-xs text-slate-500">need attention</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <Briefcase className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{assignedJobs}</p>
+                <p className="text-sm text-slate-600">Jobs filled</p>
+                <p className="text-xs text-slate-500">of {totalJobs} available</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">
+                  {totalDrivers > 0 ? Math.round((assignedDrivers / totalDrivers) * 100) : 0}%
+                </p>
+                <p className="text-sm text-slate-600">Assignment rate</p>
+                <p className="text-xs text-slate-500">completion</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Current Assignments */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle>Current Assignments</CardTitle>
+            <CardDescription>
+              Final job assignments ({assignedDrivers} drivers assigned)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {assignmentDetails.map(({ driver, job, preferenceRank }) => (
+                <div key={`${driver?.id}-${job?.id}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-slate-800">{driver?.name}</h4>
+                    <p className="text-sm text-slate-600">
+                      {driver?.driverId} • Seniority: {driver?.seniority}
+                    </p>
+                    <p className="text-sm font-medium text-blue-600 mt-1">
+                      → {job?.title}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {job?.route} • {job?.shift}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    {preferenceRank ? (
+                      <Badge className="bg-green-600">
+                        Choice #{preferenceRank}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">
+                        Not preferred
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+              
+              {assignmentDetails.length === 0 && (
+                <div className="text-center py-8 text-slate-500">
+                  <AlertTriangle className="w-8 h-8 mx-auto mb-3" />
+                  <p>No assignments calculated yet</p>
+                  <p className="text-sm">Click "Calculate Assignments" to generate assignments</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Unassigned Items */}
+        {showUnassigned && (
+          <div className="space-y-4">
+            {/* Unassigned Drivers */}
+            <Card className="border-0 shadow-md">
+              <CardHeader>
+                <CardTitle className="text-amber-700">Unassigned Drivers</CardTitle>
+                <CardDescription>
+                  Drivers without job assignments ({unassignedDrivers} drivers)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {unassignedDriversList.map(driver => (
+                    <div key={driver.id} className="flex items-center justify-between p-2 bg-amber-50 rounded">
+                      <div>
+                        <p className="font-medium text-slate-800">{driver.name}</p>
+                        <p className="text-sm text-slate-600">
+                          {driver.driverId} • Seniority: {driver.seniority}
+                        </p>
+                      </div>
+                      <Badge variant="secondary">Unassigned</Badge>
+                    </div>
+                  ))}
+                  
+                  {unassignedDriversList.length === 0 && (
+                    <div className="text-center py-4 text-slate-500">
+                      <CheckCircle className="w-6 h-6 mx-auto mb-2" />
+                      <p className="text-sm">All drivers assigned</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Unassigned Jobs */}
+            <Card className="border-0 shadow-md">
+              <CardHeader>
+                <CardTitle className="text-slate-700">Available Jobs</CardTitle>
+                <CardDescription>
+                  Jobs still available for assignment ({unassignedJobs} jobs)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {unassignedJobsList.map(job => (
+                    <div key={job.id} className="flex items-center justify-between p-2 bg-slate-50 rounded">
+                      <div>
+                        <p className="font-medium text-slate-800">{job.title}</p>
+                        <p className="text-sm text-slate-600">
+                          {job.route} • {job.shift}
+                        </p>
+                      </div>
+                      <Badge variant="outline">Available</Badge>
+                    </div>
+                  ))}
+                  
+                  {unassignedJobsList.length === 0 && (
+                    <div className="text-center py-4 text-slate-500">
+                      <Briefcase className="w-6 h-6 mx-auto mb-2" />
+                      <p className="text-sm">All jobs assigned</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+--- FILE: src/pages/admin/StatisticsPage.tsx ---
+import { useMemo } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { useDriverStore } from '@/store/driverStore';
+import { 
+  BarChart3, 
+  TrendingUp, 
+  Users, 
+  Briefcase, 
+  Target,
+  Award,
+  Clock,
+  AlertCircle
+} from 'lucide-react';
+
+export function StatisticsPage() {
+  const { drivers, jobs, preferences, assignments } = useDriverStore();
+
+  const stats = useMemo(() => {
+    const totalDrivers = drivers.length;
+    const activeDrivers = drivers.filter(d => d.status === 'active').length;
+    const totalJobs = jobs.length;
+    const activeJobs = jobs.filter(j => j.status === 'active').length;
+    
+    const driversWithPreferences = Object.keys(preferences).length;
+    const totalPreferences = Object.values(preferences).reduce((sum, prefs) => sum + prefs.length, 0);
+    
+    const assignedDrivers = Object.keys(assignments).length;
+    const assignedJobs = new Set(Object.values(assignments)).size;
+    
+    const participationRate = totalDrivers > 0 ? (driversWithPreferences / totalDrivers) * 100 : 0;
+    const assignmentRate = totalDrivers > 0 ? (assignedDrivers / totalDrivers) * 100 : 0;
+    const avgPreferencesPerDriver = driversWithPreferences > 0 ? totalPreferences / driversWithPreferences : 0;
+
+    // Seniority distribution
+    const seniorityRanges = {
+      '0-5 years': drivers.filter(d => d.seniority <= 5).length,
+      '6-10 years': drivers.filter(d => d.seniority > 5 && d.seniority <= 10).length,
+      '11-15 years': drivers.filter(d => d.seniority > 10 && d.seniority <= 15).length,
+      '16+ years': drivers.filter(d => d.seniority > 15).length,
+    };
+
+    // Job popularity
+    const jobPopularity = jobs.map(job => {
+      const selections = Object.values(preferences).filter(prefs => 
+        prefs.includes(job.id)
+      ).length;
+      return { job, selections };
+    }).sort((a, b) => b.selections - a.selections);
+
+    // Preference rank analysis
+    const preferenceAnalysis = Object.values(preferences).map(prefs => prefs.length);
+    const maxPreferences = Math.max(...preferenceAnalysis, 0);
+    const minPreferences = preferenceAnalysis.length > 0 ? Math.min(...preferenceAnalysis) : 0;
+
+    // Assignment satisfaction (how many drivers got their preferred jobs)
+    const assignmentSatisfaction = Object.entries(assignments).map(([driverId, jobId]) => {
+      const driverPrefs = preferences[driverId] || [];
+      const preferenceRank = driverPrefs.indexOf(jobId);
+      return preferenceRank !== -1 ? preferenceRank + 1 : null;
+    }).filter(rank => rank !== null);
+
+    const satisfactionStats = {
+      firstChoice: assignmentSatisfaction.filter(rank => rank === 1).length,
+      topThree: assignmentSatisfaction.filter(rank => rank <= 3).length,
+      total: assignmentSatisfaction.length
+    };
+
+    return {
+      totalDrivers,
+      activeDrivers,
+      totalJobs,
+      activeJobs,
+      driversWithPreferences,
+      totalPreferences,
+      assignedDrivers,
+      assignedJobs,
+      participationRate: Math.round(participationRate * 10) / 10,
+      assignmentRate: Math.round(assignmentRate * 10) / 10,
+      avgPreferencesPerDriver: Math.round(avgPreferencesPerDriver * 10) / 10,
+      seniorityRanges,
+      jobPopularity,
+      maxPreferences,
+      minPreferences,
+      satisfactionStats
+    };
+  }, [drivers, jobs, preferences, assignments]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-800">Statistics</h1>
+        <p className="text-slate-600">System performance and analytics dashboard</p>
+      </div>
+
+      {/* Overview Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.totalDrivers}</p>
+                <p className="text-sm text-slate-600">Total Drivers</p>
+                <p className="text-xs text-slate-500">{stats.activeDrivers} active</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                <Briefcase className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.totalJobs}</p>
+                <p className="text-sm text-slate-600">Total Jobs</p>
+                <p className="text-xs text-slate-500">{stats.activeJobs} active</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                <Target className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.participationRate}%</p>
+                <p className="text-sm text-slate-600">Participation</p>
+                <p className="text-xs text-slate-500">{stats.driversWithPreferences} drivers</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                <Award className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.assignmentRate}%</p>
+                <p className="text-sm text-slate-600">Assigned</p>
+                <p className="text-xs text-slate-500">{stats.assignedDrivers} drivers</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Preference Statistics */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <BarChart3 className="w-5 h-5" />
+              <span>Preference Statistics</span>
+            </CardTitle>
+            <CardDescription>Driver preference submission patterns</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span className="text-slate-700">Total Preferences</span>
+                <Badge>{stats.totalPreferences}</Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span className="text-slate-700">Average per Driver</span>
+                <Badge variant="secondary">{stats.avgPreferencesPerDriver}</Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span className="text-slate-700">Max Preferences</span>
+                <Badge variant="outline">{stats.maxPreferences}</Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span className="text-slate-700">Min Preferences</span>
+                <Badge variant="outline">{stats.minPreferences}</Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Seniority Distribution */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Clock className="w-5 h-5" />
+              <span>Seniority Distribution</span>
+            </CardTitle>
+            <CardDescription>Driver experience breakdown</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {Object.entries(stats.seniorityRanges).map(([range, count]) => (
+                <div key={range} className="flex items-center justify-between">
+                  <span className="text-slate-700">{range}</span>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-32 bg-slate-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all"
+                        style={{ 
+                          width: `${stats.totalDrivers > 0 ? (count / stats.totalDrivers) * 100 : 0}%` 
+                        }}
+                      />
+                    </div>
+                    <Badge variant="secondary">{count}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Job Popularity */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <TrendingUp className="w-5 h-5" />
+              <span>Most Popular Jobs</span>
+            </CardTitle>
+            <CardDescription>Jobs with highest selection rates</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {stats.jobPopularity.slice(0, 8).map(({ job, selections }) => (
+                <div key={job.id} className="flex items-center justify-between p-2 bg-slate-50 rounded">
+                  <div>
+                    <p className="font-medium text-slate-800">{job.title}</p>
+                    <p className="text-sm text-slate-600">{job.route}</p>
+                  </div>
+                  <Badge className="bg-blue-600">{selections} picks</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Assignment Satisfaction */}
+        <Card className="border-0 shadow-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Award className="w-5 h-5" />
+              <span>Assignment Satisfaction</span>
+            </CardTitle>
+            <CardDescription>How well assignments match preferences</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <span className="text-slate-700">Got First Choice</span>
+                <Badge className="bg-green-600">
+                  {stats.satisfactionStats.firstChoice}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                <span className="text-slate-700">Got Top 3 Choice</span>
+                <Badge className="bg-blue-600">
+                  {stats.satisfactionStats.topThree}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span className="text-slate-700">Total Assigned</span>
+                <Badge variant="secondary">
+                  {stats.satisfactionStats.total}
+                </Badge>
+              </div>
+              
+              {stats.satisfactionStats.total > 0 && (
+                <div className="pt-2 border-t">
+                  <p className="text-sm text-slate-600">
+                    <strong>
+                      {Math.round((stats.satisfactionStats.firstChoice / stats.satisfactionStats.total) * 100)}%
+                    </strong> got their first choice
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    <strong>
+                      {Math.round((stats.satisfactionStats.topThree / stats.satisfactionStats.total) * 100)}%
+                    </strong> got a top 3 choice
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* System Health Indicators */}
+      <Card className="border-0 shadow-md">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5" />
+            <span>System Health</span>
+          </CardTitle>
+          <CardDescription>Key performance indicators</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <div className={`text-3xl font-bold mb-2 ${
+                stats.participationRate >= 80 ? 'text-green-600' : 
+                stats.participationRate >= 60 ? 'text-amber-600' : 'text-red-600'
+              }`}>
+                {stats.participationRate}%
+              </div>
+              <p className="text-sm text-slate-600">Driver Participation</p>
+              <p className="text-xs text-slate-500">
+                {stats.participationRate >= 80 ? 'Excellent' :
+                 stats.participationRate >= 60 ? 'Good' : 'Needs Improvement'}
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className={`text-3xl font-bold mb-2 ${
+                stats.assignmentRate >= 90 ? 'text-green-600' : 
+                stats.assignmentRate >= 70 ? 'text-amber-600' : 'text-red-600'
+              }`}>
+                {stats.assignmentRate}%
+              </div>
+              <p className="text-sm text-slate-600">Assignment Rate</p>
+              <p className="text-xs text-slate-500">
+                {stats.assignmentRate >= 90 ? 'Excellent' :
+                 stats.assignmentRate >= 70 ? 'Good' : 'Needs Improvement'}
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className={`text-3xl font-bold mb-2 ${
+                stats.avgPreferencesPerDriver >= 3 ? 'text-green-600' : 
+                stats.avgPreferencesPerDriver >= 2 ? 'text-amber-600' : 'text-red-600'
+              }`}>
+                {stats.avgPreferencesPerDriver}
+              </div>
+              <p className="text-sm text-slate-600">Avg Preferences</p>
+              <p className="text-xs text-slate-500">
+                {stats.avgPreferencesPerDriver >= 3 ? 'Excellent' :
+                 stats.avgPreferencesPerDriver >= 2 ? 'Good' : 'Low Engagement'}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

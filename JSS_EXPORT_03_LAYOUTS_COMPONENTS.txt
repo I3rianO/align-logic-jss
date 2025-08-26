@@ -1,0 +1,427 @@
+===========================================
+    JSS EXPORT 03: LAYOUTS & COMPONENTS
+===========================================
+
+--- FILE: src/components/layouts/MainLayout.tsx ---
+import { Outlet } from 'react-router-dom';
+import { JssLogo } from '../JssLogo';
+
+export const MainLayout = () => {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100">
+      {/* Header */}
+      <header className="bg-white border-b border-blue-200 shadow-sm">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <JssLogo />
+            <div className="text-sm text-muted-foreground">
+              Job Selection System
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8">
+        <Outlet />
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-blue-200 mt-auto">
+        <div className="container mx-auto px-4 py-6">
+          <div className="text-center text-sm text-muted-foreground">
+            <p>&copy; 2024 Job Selection System. All rights reserved.</p>
+            <p className="mt-1">For technical support, contact IT Department</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+--- FILE: src/components/layouts/AdminLayout.tsx ---
+import { Outlet } from 'react-router-dom';
+import { AdminSidebar } from '../AdminSidebar';
+import { JssLogo } from '../JssLogo';
+import { Button } from '@/components/ui/button';
+import { LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { logoutAdmin } from '@/utils/session';
+
+export const AdminLayout = () => {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logoutAdmin();
+    navigate('/admin-portal');
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-white border-r border-gray-200 shadow-sm">
+        <div className="p-4 border-b border-gray-200">
+          <JssLogo size="sm" />
+          <p className="text-xs text-muted-foreground mt-2">Admin Portal</p>
+        </div>
+        
+        <AdminSidebar />
+        
+        {/* Logout Button */}
+        <div className="absolute bottom-4 left-4 right-4">
+          <Button 
+            variant="outline" 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-lg font-semibold">Administrative Dashboard</h1>
+            <div className="text-sm text-muted-foreground">
+              Logged in as Administrator
+            </div>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <main className="flex-1 p-6 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+};
+
+--- FILE: src/components/JssLogo.tsx ---
+import { Mountain } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface JssLogoProps {
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}
+
+export const JssLogo = ({ size = 'md', className }: JssLogoProps) => {
+  const sizeClasses = {
+    sm: 'h-6 w-6',
+    md: 'h-8 w-8',
+    lg: 'h-12 w-12'
+  };
+
+  const textSizeClasses = {
+    sm: 'text-lg',
+    md: 'text-xl',
+    lg: 'text-3xl'
+  };
+
+  return (
+    <div className={cn('flex items-center gap-3', className)}>
+      <div className="relative">
+        <Mountain className={cn(
+          sizeClasses[size],
+          'text-blue-600 drop-shadow-sm'
+        )} />
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-400 to-blue-600 rounded-sm opacity-20" />
+      </div>
+      
+      <div className="flex flex-col">
+        <span className={cn(
+          textSizeClasses[size],
+          'font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent'
+        )}>
+          JSS
+        </span>
+        {size !== 'sm' && (
+          <span className="text-xs text-muted-foreground leading-none">
+            Job Selection System
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+--- FILE: src/components/AdminSidebar.tsx ---
+import { Link, useLocation } from 'react-router-dom';
+import { cn } from '@/lib/utils';
+import { 
+  Users, 
+  Briefcase, 
+  Eye, 
+  CheckSquare, 
+  BarChart3, 
+  AlertTriangle, 
+  MessageSquare, 
+  Activity, 
+  Settings, 
+  Shield 
+} from 'lucide-react';
+
+const navigationItems = [
+  {
+    title: 'Driver Management',
+    href: '/admin/edit-drivers',
+    icon: Users,
+    description: 'Manage driver profiles and status'
+  },
+  {
+    title: 'Job Management',
+    href: '/admin/edit-jobs',
+    icon: Briefcase,
+    description: 'Create and edit available jobs'
+  },
+  {
+    title: 'Live Picks Snapshot',
+    href: '/admin/live-picks',
+    icon: Eye,
+    description: 'View current job selections'
+  },
+  {
+    title: 'Final Assignments',
+    href: '/admin/final-assignments',
+    icon: CheckSquare,
+    description: 'Review and finalize job assignments'
+  },
+  {
+    title: 'Statistics',
+    href: '/admin/statistics',
+    icon: BarChart3,
+    description: 'View system analytics and reports'
+  },
+  {
+    title: 'Conflict Resolution',
+    href: '/admin/conflict-resolution',
+    icon: AlertTriangle,
+    description: 'Handle job assignment conflicts'
+  },
+  {
+    title: 'Dispute Resolution',
+    href: '/admin/dispute-resolution',
+    icon: MessageSquare,
+    description: 'Manage driver disputes'
+  },
+  {
+    title: 'Activity Log',
+    href: '/admin/activity-log',
+    icon: Activity,
+    description: 'View system activity and audit trail'
+  },
+  {
+    title: 'System Settings',
+    href: '/admin/system-settings',
+    icon: Settings,
+    description: 'Configure system parameters'
+  },
+  {
+    title: 'Master Admin',
+    href: '/admin/master-admin',
+    icon: Shield,
+    description: 'Advanced administrative functions'
+  }
+];
+
+export const AdminSidebar = () => {
+  const location = useLocation();
+
+  return (
+    <nav className="px-4 py-4 space-y-1">
+      {navigationItems.map((item) => {
+        const Icon = item.icon;
+        const isActive = location.pathname === item.href;
+        
+        return (
+          <Link
+            key={item.href}
+            to={item.href}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+              'hover:bg-blue-50 hover:text-blue-700',
+              isActive 
+                ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                : 'text-gray-700'
+            )}
+          >
+            <Icon className="w-4 h-4 flex-shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="truncate">{item.title}</span>
+              <span className="text-xs text-muted-foreground leading-none mt-0.5 truncate">
+                {item.description}
+              </span>
+            </div>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+};
+
+--- FILE: src/components/ui/button.tsx ---
+import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button"
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Button.displayName = "Button"
+
+export { Button, buttonVariants }
+
+--- FILE: src/components/ui/card.tsx ---
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+const Card = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn(
+      "rounded-lg border bg-card text-card-foreground shadow-sm",
+      className
+    )}
+    {...props}
+  />
+))
+Card.displayName = "Card"
+
+const CardHeader = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("flex flex-col space-y-1.5 p-6", className)} {...props} />
+))
+CardHeader.displayName = "CardHeader"
+
+const CardTitle = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLHeadingElement>
+>(({ className, ...props }, ref) => (
+  <h3
+    ref={ref}
+    className={cn(
+      "text-2xl font-semibold leading-none tracking-tight",
+      className
+    )}
+    {...props}
+  />
+))
+CardTitle.displayName = "CardTitle"
+
+const CardDescription = React.forwardrer<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLParagraphElement>
+>(({ className, ...props }, ref) => (
+  <p
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+))
+CardDescription.displayName = "CardDescription"
+
+const CardContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+))
+CardContent.displayName = "CardContent"
+
+const CardFooter = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex items-center p-6 pt-0", className)}
+    {...props}
+  />
+))
+CardFooter.displayName = "CardFooter"
+
+export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+
+--- FILE: src/components/ui/input.tsx ---
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+export interface InputProps
+  extends React.InputHTMLAttributes<HTMLInputElement> {}
+
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, ...props }, ref) => {
+    return (
+      <input
+        type={type}
+        className={cn(
+          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Input.displayName = "Input"
+
+export { Input }
