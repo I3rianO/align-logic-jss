@@ -873,7 +873,7 @@ function HomePage() {
             
             <div className="border-t border-white/20 mt-8 pt-6 text-center">
               <p className="text-sm font-medium text-white/70 mb-0">
-                © {new Date().getFullYear()} Job Selection System | All Rights Reserved
+                © {new Date().getFullYear()} Brian P. O'Leary | All Rights Reserved
               </p>
             </div>
           </div>
