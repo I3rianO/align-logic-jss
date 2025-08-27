@@ -1,4 +1,5 @@
 import React, { useEffect, Suspense } from "react";
+import HealthCheck from "./pages/HealthCheck";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "./components/ui/toaster";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -54,6 +55,7 @@ function App() {
                 <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/admin/edit-drivers" element={<EditDriversPage />} />
                 <Route path="/admin/edit-jobs" element={<EditJobsPage />} />
+                <Route path="/health" element={<HealthCheck />} />
                 <Route path="/admin/live-picks-snapshot" element={<LivePicksSnapshotPage />} />
                 <Route path="/admin/final-assignments" element={<FinalAssignmentsPage />} />
                 <Route path="/admin/conflict-resolution" element={<ConflictResolutionPage />} />
