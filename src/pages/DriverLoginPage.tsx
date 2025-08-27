@@ -6,17 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import useDriverStore from '@/store/driverStore';
-import { Loader2, Key, Shield, ArrowRight, HelpCircle } from 'lucide-react';
+import { Loader2, Key, ArrowRight } from 'lucide-react';
 import MainLayout from '@/components/layout/MainLayout';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -24,6 +15,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+// ✅ per-driver local PIN helpers
+import { getDriverPin, setDriverPin } from "@/utils/driverPass";
 
 // Security questions options
 const SECURITY_QUESTIONS = [
@@ -43,8 +37,8 @@ function DriverLoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { 
-    drivers, 
+  const {
+    drivers,
     validateDriverCredentials,
     setDriverPassword,
     setDriverSecurityQuestions,
@@ -55,13 +49,13 @@ function DriverLoginPage() {
   } = useDriverStore();
 
   // Get employeeId and site information from location state
-  const employeeId = location.state?.employeeId;
-  const siteId = location.state?.siteId;
-  const siteName = location.state?.siteName;
-  const companyId = location.state?.companyId;
-  
+  const employeeId = location.state?.employeeId as string | undefined;
+  const siteId = location.state?.siteId as string | undefined;
+  const siteName = location.state?.siteName as string | undefined;
+  const companyId = location.state?.companyId as string | undefined;
+
   const driver = drivers.find(d => d.employeeId === employeeId);
-  
+
   // Site display information
   const siteInfo = useMemo(() => {
     if (siteName && siteId) {
@@ -74,9 +68,11 @@ function DriverLoginPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // These control which screen shows (setup vs questions vs normal login)
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
   const [showSecurityQuestions, setShowSecurityQuestions] = useState(false);
-  
+
   // Security questions state
   const [question1, setQuestion1] = useState('');
   const [answer1, setAnswer1] = useState('');
@@ -91,25 +87,32 @@ function DriverLoginPage() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [securityQuestions, setSecurityQuestions] = useState<{ question1: string, question2: string } | null>(null);
 
-  // Redirect if no employeeId in state
+  // Redirect if no employeeId in state, and decide which view to show
   useEffect(() => {
     if (!employeeId) {
       navigate('/');
-    } else if (driver) {
-      // Check if the driver needs to set up password
-      setShowPasswordSetup(!driver.passwordSet);
-      
-      // If they have a password but need to set up security questions
-      if (driver.passwordSet && !driver.securityQuestionsSet) {
+      return;
+    }
+
+    // ✅ Decide password-setup screen based on per-driver local storage
+    // If this driver already has a stored pin locally, don't show password setup.
+    const existingPin = getDriverPin(employeeId);
+    setShowPasswordSetup(!existingPin);
+
+    // Keep your existing logic for security questions:
+    if (driver) {
+      if (existingPin && !driver.securityQuestionsSet) {
         setShowSecurityQuestions(true);
+      } else {
+        setShowSecurityQuestions(false);
       }
-      
-      // If they're trying password reset, fetch their security questions
-      if (isForgotPassword && driver.securityQuestionsSet) {
-        const questions = getDriverSecurityQuestions(employeeId);
-        if (questions) {
-          setSecurityQuestions(questions);
-        }
+    }
+
+    // If they're trying password reset and questions exist, hydrate the prompts
+    if (isForgotPassword && driver?.securityQuestionsSet) {
+      const questions = getDriverSecurityQuestions(employeeId);
+      if (questions) {
+        setSecurityQuestions(questions);
       }
     }
   }, [employeeId, driver, navigate, isForgotPassword, getDriverSecurityQuestions]);
@@ -127,30 +130,29 @@ function DriverLoginPage() {
 
     setIsLoading(true);
 
-    // Simulate API call for validation
     setTimeout(() => {
-      const isValid = validateDriverCredentials(employeeId, password);
-      
+      const isValid = validateDriverCredentials(employeeId!, password);
+
       if (isValid) {
         // Log this activity
         if (driver) {
           logDriverActivity({
-            driverId: employeeId,
+            driverId: employeeId!,
             driverName: driver.name,
             action: 'login',
             details: 'Successfully logged in'
           });
         }
-        
+
         // Navigate to driver preferences page with site information
-        navigate('/driver-preferences', { 
-          state: { 
-            employeeId, 
+        navigate('/driver-preferences', {
+          state: {
+            employeeId,
             authenticated: true,
             siteId: siteId || driver?.siteId,
             siteName: siteName,
             companyId: companyId || driver?.companyId
-          } 
+          }
         });
       } else {
         toast({
@@ -194,16 +196,20 @@ function DriverLoginPage() {
 
     setIsLoading(true);
 
-    // Simulate API call for setting password
     setTimeout(() => {
-      setDriverPassword(employeeId, password);
-      
+      // Keep store in sync…
+      setDriverPassword(employeeId!, password);
+      // …and ✅ persist per-driver PIN locally so switching drivers doesn’t collide
+      setDriverPin(employeeId!, password);
+
       setIsLoading(false);
       setShowPasswordSetup(false);
-      
+
       // If security questions need to be set up
-      setShowSecurityQuestions(true);
-      
+      if (driver && !driver.securityQuestionsSet) {
+        setShowSecurityQuestions(true);
+      }
+
       toast({
         title: "Password Set",
         description: "Your password has been set successfully.",
@@ -242,32 +248,30 @@ function DriverLoginPage() {
 
     setIsLoading(true);
 
-    // Simulate API call for setting security questions
     setTimeout(() => {
-      setDriverSecurityQuestions(employeeId, {
+      setDriverSecurityQuestions(employeeId!, {
         question1,
         answer1,
         question2,
         answer2
       });
-      
+
       setIsLoading(false);
       setShowSecurityQuestions(false);
-      
+
       toast({
         title: "Security Questions Set",
         description: "Your security questions have been set successfully.",
       });
-      
-      // Navigate to driver preferences page with site information
-      navigate('/driver-preferences', { 
-        state: { 
-          employeeId, 
+
+      navigate('/driver-preferences', {
+        state: {
+          employeeId,
           authenticated: true,
           siteId: siteId || driver?.siteId,
           siteName: siteName,
           companyId: companyId || driver?.companyId
-        } 
+        }
       });
     }, 800);
   };
@@ -312,20 +316,21 @@ function DriverLoginPage() {
 
     setIsLoading(true);
 
-    // Validate security answers
     setTimeout(() => {
-      const isValid = validateSecurityAnswers(employeeId, {
+      const isValid = validateSecurityAnswers(employeeId!, {
         answer1: resetAnswer1,
         answer2: resetAnswer2
       });
-      
+
       if (isValid) {
-        // Reset password
-        setDriverPassword(employeeId, newPassword);
-        
+        // Update store…
+        setDriverPassword(employeeId!, newPassword);
+        // …and ✅ update the per-driver local pin as well
+        setDriverPin(employeeId!, newPassword);
+
         setIsLoading(false);
         setIsForgotPassword(false);
-        
+
         toast({
           title: "Password Reset Successful",
           description: "Your password has been reset. You can now log in with your new password.",
@@ -390,7 +395,7 @@ function DriverLoginPage() {
               <Button variant="outline" onClick={() => navigate('/')}>
                 Cancel
               </Button>
-              <Button 
+              <Button
                 onClick={handlePasswordSetup}
                 disabled={isLoading || !password || !confirmPassword}
               >
@@ -477,7 +482,7 @@ function DriverLoginPage() {
               <Button variant="outline" onClick={() => navigate('/')}>
                 Cancel
               </Button>
-              <Button 
+              <Button
                 onClick={handleSecurityQuestionsSetup}
                 disabled={isLoading || !question1 || !answer1 || !question2 || !answer2}
               >
@@ -562,7 +567,7 @@ function DriverLoginPage() {
               <Button variant="outline" onClick={handleBackToLogin}>
                 Back to Login
               </Button>
-              <Button 
+              <Button
                 onClick={handlePasswordReset}
                 disabled={isLoading || !resetAnswer1 || !resetAnswer2 || !newPassword || !confirmNewPassword}
               >
@@ -632,7 +637,7 @@ function DriverLoginPage() {
             <Button variant="outline" onClick={() => navigate('/')}>
               Back
             </Button>
-            <Button 
+            <Button
               onClick={handleLogin}
               disabled={isLoading || !password}
             >
