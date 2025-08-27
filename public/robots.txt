@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://align-logic.com/sitemap.xml
+Sitemap: https://www.align-logic.com/sitemap.xml
