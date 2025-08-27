@@ -29,7 +29,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Job } from '@/store/driverStore';
 import { useIsMobile } from '@/hooks/use-mobile';
 
-// ⬇⬇⬇ Supabase client (adjust import path if your project uses a different one)
+// Supabase client
 import { supabase } from '@/lib/supabase';
 
 interface SortConfig {
@@ -38,19 +38,17 @@ interface SortConfig {
 }
 
 interface FilterConfig {
-  startTimeRange: [number, number]; // Minutes from midnight
-  showAirport: boolean | null; // true = only airport, false = only non-airport, null = both
-  weekDays: string | null; // specific day pattern or null for all
+  startTimeRange: [number, number]; // minutes from midnight
+  showAirport: boolean | null;       // true = only airport, false = only non-airport, null = both
+  weekDays: string | null;           // specific day pattern or null for all
   searchTerm: string;
 }
 
-// Helper function to convert time string to minutes
 const timeToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(':').map(Number);
   return hours * 60 + minutes;
 };
 
-// Helper function to convert minutes to time string
 const minutesToTime = (minutes: number): string => {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
@@ -63,7 +61,7 @@ function DriverPreferencesPage() {
   const { toast } = useToast();
   const isMobileDevice = useIsMobile();
 
-  // Get employeeId, auth status and site info from location state
+  // pulled in via router state
   const employeeId: string | undefined = location.state?.employeeId;
   const authenticated: boolean | undefined = location.state?.authenticated;
   const siteId: string | undefined = location.state?.siteId;
@@ -88,10 +86,8 @@ function DriverPreferencesPage() {
     logDriverActivity
   } = useDriverStore();
 
-  // Get current driver info
   const driverInfo = drivers.find(d => d.employeeId === employeeId);
 
-  // Track "started" so cutoff after-start is allowed to finish
   const hasStartedRef = React.useRef(false);
   const [isCutoffReached, setIsCutoffReached] = useState<boolean>(false);
 
@@ -107,12 +103,12 @@ function DriverPreferencesPage() {
     }
   }, [isCutoffActive, employeeId, driverInfo, logDriverActivity]);
 
-  // ====== PREFERENCES STATE (hydrate from store, then Supabase) ======
+  // ====== PREFERENCES STATE ======
   const storeExisting = getDriverPreferences(employeeId || '');
   const [jobPreferences, setJobPreferences] = useState<string[]>(storeExisting || []);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Sorting & filtering
+  // sorting / filtering UI
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: 'asc' });
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const [filterConfig, setFilterConfig] = useState<FilterConfig>({
@@ -122,22 +118,21 @@ function DriverPreferencesPage() {
     searchTerm: ''
   });
 
-  // Mark as started if user adds first pick
   useEffect(() => {
     if (jobPreferences.length > 0 && !storeExisting) {
       hasStartedRef.current = true;
     }
   }, [jobPreferences, storeExisting]);
 
-  // ====== SUPABASE: LOAD DRIVER PICKS ON MOUNT ======
+  // ====== SUPABASE: LOAD DRIVER PICKS (uses preference_rank) ======
   useEffect(() => {
     const loadPicks = async () => {
       if (!employeeId) return;
       const { data, error } = await supabase
         .from('driver_picks')
-        .select('job_id, pick_order')
+        .select('job_id, preference_rank')
         .eq('driver_id', employeeId)
-        .order('pick_order', { ascending: true });
+        .order('preference_rank', { ascending: true });
 
       if (error) {
         console.error('Load picks error:', error);
@@ -145,7 +140,7 @@ function DriverPreferencesPage() {
       }
       if (data && data.length) {
         setJobPreferences(data.map(r => r.job_id));
-        hasStartedRef.current = true; // they already had picks
+        hasStartedRef.current = true;
       }
     };
     loadPicks();
@@ -154,7 +149,9 @@ function DriverPreferencesPage() {
 
   // ====== SORT / FILTER ======
   const handleSort = (key: keyof Job) => {
-    setSortConfig(prev => (prev.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }));
+    setSortConfig(prev =>
+      prev.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }
+    );
   };
 
   const sortAndFilterJobs = (jobsToSort: Job[]): Job[] => {
@@ -175,7 +172,12 @@ function DriverPreferencesPage() {
     // Search
     if (filterConfig.searchTerm.trim() !== '') {
       const term = filterConfig.searchTerm.toLowerCase();
-      result = result.filter(j => j.jobId.toLowerCase().includes(term) || j.startTime.toLowerCase().includes(term) || j.weekDays.toLowerCase().includes(term));
+      result = result.filter(
+        j =>
+          j.jobId.toLowerCase().includes(term) ||
+          j.startTime.toLowerCase().includes(term) ||
+          j.weekDays.toLowerCase().includes(term)
+      );
     }
 
     // Start time range
@@ -231,7 +233,7 @@ function DriverPreferencesPage() {
     setJobPreferences(next);
   };
 
-  // ====== SUPABASE: SAVE PICKS (wipe + upsert) ======
+  // ====== SUPABASE: SAVE PICKS (wipe + insert with preference_rank) ======
   const persistToSupabase = async (picks: string[]) => {
     if (!employeeId) return;
 
@@ -241,12 +243,12 @@ function DriverPreferencesPage() {
 
     if (picks.length === 0) return;
 
-    // 2) upsert new ordered picks
+    // 2) insert new ordered picks
     const nowIso = new Date().toISOString();
     const rows = picks.map((jobId, idx) => ({
       driver_id: employeeId,
       job_id: jobId,
-      pick_order: idx + 1,
+      preference_rank: idx + 1,                 // <<<<<<<<<<<<<< key change
       submitted_at: nowIso,
       site_id: siteId ?? driverInfo?.siteId ?? null,
       company_id: companyId ?? driverInfo?.companyId ?? null
@@ -259,10 +261,9 @@ function DriverPreferencesPage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // Persist to Supabase (authoritative)
       await persistToSupabase(jobPreferences);
 
-      // Keep your local store behavior (so existing UI flows keep working)
+      // keep local store in sync
       submitPreferences({
         driverId: employeeId || '',
         preferences: jobPreferences,
@@ -300,7 +301,6 @@ function DriverPreferencesPage() {
 
   const exitPage = () => navigate('/');
 
-  // Reset filters
   const resetFilters = () =>
     setFilterConfig({
       startTimeRange: [0, 24 * 60 - 1],
@@ -309,10 +309,8 @@ function DriverPreferencesPage() {
       searchTerm: ''
     });
 
-  // Extract unique weekdays
   const weekDayOptions = [...new Set(jobs.map(j => j.weekDays))];
 
-  // Active filter count
   const getActiveFilterCount = () => {
     let count = 0;
     if (filterConfig.startTimeRange[0] > 0 || filterConfig.startTimeRange[1] < 24 * 60 - 1) count++;
@@ -322,7 +320,6 @@ function DriverPreferencesPage() {
     return count;
   };
 
-  // Print
   const printJobPreferences = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -559,7 +556,6 @@ function DriverPreferencesPage() {
                                 onValueChange={value => setFilterConfig({ ...filterConfig, startTimeRange: [value[0], value[1]] })}
                                 className="my-6"
                               />
-                              {/* handles (decorative) */}
                               <div
                                 className="absolute w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md"
                                 style={{
