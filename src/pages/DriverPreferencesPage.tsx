@@ -1,39 +1,36 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import useDriverStore from '@/store/driverStore';
-import { 
-  Check, 
-  ChevronDown, 
-  ChevronUp, 
-  Info, 
-  Loader2, 
-  LogOut, 
-  Plus, 
-  Save, 
-  Trash2, 
-  Plane, 
+import {
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Loader2,
+  LogOut,
+  Plus,
+  Save,
+  Trash2,
+  Plane,
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
   Filter,
-  X,
   Printer
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Job } from '@/store/driverStore';
 import { useIsMobile } from '@/hooks/use-mobile';
+
+// ⬇⬇⬇ Supabase client (adjust import path if your project uses a different one)
+import { supabase } from '@/lib/supabase';
 
 interface SortConfig {
   key: keyof Job | '';
@@ -65,49 +62,41 @@ function DriverPreferencesPage() {
   const location = useLocation();
   const { toast } = useToast();
   const isMobileDevice = useIsMobile();
-  
-  // Get employeeId, authentication status and site information from location state
-  const employeeId = location.state?.employeeId;
-  const authenticated = location.state?.authenticated;
-  const siteId = location.state?.siteId;
-  const siteName = location.state?.siteName;
-  const companyId = location.state?.companyId;
-  
+
+  // Get employeeId, auth status and site info from location state
+  const employeeId: string | undefined = location.state?.employeeId;
+  const authenticated: boolean | undefined = location.state?.authenticated;
+  const siteId: string | undefined = location.state?.siteId;
+  const siteName: string | undefined = location.state?.siteName;
+  const companyId: string | undefined = location.state?.companyId;
+
   useEffect(() => {
     if (!employeeId) {
       navigate('/');
     } else if (!authenticated) {
-      // Redirect to login page if not authenticated
       navigate('/driver-login', { state: { employeeId } });
     }
   }, [employeeId, authenticated, navigate]);
-  
-  const { 
-    jobs, 
-    preferences, 
-    submitPreferences, 
-    getDriverPreferences, 
-    isCutoffActive, 
+
+  const {
+    jobs,
+    submitPreferences,
+    getDriverPreferences,
+    isCutoffActive,
     drivers,
     systemSettings,
     logDriverActivity
   } = useDriverStore();
-  
-  // Get current driver information from the store
-  const driverInfo = drivers.find(driver => driver.employeeId === employeeId);
-  
-  // Check if cutoff is active ONLY on initial load
-  // Using a ref to track if user already started making selections
+
+  // Get current driver info
+  const driverInfo = drivers.find(d => d.employeeId === employeeId);
+
+  // Track "started" so cutoff after-start is allowed to finish
   const hasStartedRef = React.useRef(false);
   const [isCutoffReached, setIsCutoffReached] = useState<boolean>(false);
-  
+
   useEffect(() => {
-    // If the user hasn't started making picks yet, check the cutoff status
-    if (!hasStartedRef.current) {
-      setIsCutoffReached(isCutoffActive);
-    }
-    
-    // Log driver viewing preferences
+    if (!hasStartedRef.current) setIsCutoffReached(isCutoffActive);
     if (driverInfo) {
       logDriverActivity({
         driverId: employeeId || '',
@@ -117,221 +106,232 @@ function DriverPreferencesPage() {
       });
     }
   }, [isCutoffActive, employeeId, driverInfo, logDriverActivity]);
-  
-  // Get existing preferences for this driver
-  const existingPrefs = getDriverPreferences(employeeId || '');
-  
-  // Initialize job preferences state
-  const [jobPreferences, setJobPreferences] = useState<string[]>(existingPrefs || []);
+
+  // ====== PREFERENCES STATE (hydrate from store, then Supabase) ======
+  const storeExisting = getDriverPreferences(employeeId || '');
+  const [jobPreferences, setJobPreferences] = useState<string[]>(storeExisting || []);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Sorting & filtering
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: 'asc' });
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const [filterConfig, setFilterConfig] = useState<FilterConfig>({
-    startTimeRange: [0, 24 * 60 - 1], // 0 minutes to 23:59
+    startTimeRange: [0, 24 * 60 - 1],
     showAirport: null,
     weekDays: null,
-    searchTerm: '',
+    searchTerm: ''
   });
-  
-  // When user interacts with preferences, mark that they've started making picks
+
+  // Mark as started if user adds first pick
   useEffect(() => {
-    if (jobPreferences.length > 0 && !existingPrefs) {
+    if (jobPreferences.length > 0 && !storeExisting) {
       hasStartedRef.current = true;
     }
-  }, [jobPreferences, existingPrefs]);
-  
-  // Function to handle sorting
-  const handleSort = (key: keyof Job) => {
-    setSortConfig((prevConfig) => {
-      if (prevConfig.key === key) {
-        return {
-          ...prevConfig,
-          direction: prevConfig.direction === 'asc' ? 'desc' : 'asc',
-        };
+  }, [jobPreferences, storeExisting]);
+
+  // ====== SUPABASE: LOAD DRIVER PICKS ON MOUNT ======
+  useEffect(() => {
+    const loadPicks = async () => {
+      if (!employeeId) return;
+      const { data, error } = await supabase
+        .from('driver_picks')
+        .select('job_id, pick_order')
+        .eq('driver_id', employeeId)
+        .order('pick_order', { ascending: true });
+
+      if (error) {
+        console.error('Load picks error:', error);
+        return; // fall back to client store
       }
-      return { key, direction: 'asc' };
-    });
+      if (data && data.length) {
+        setJobPreferences(data.map(r => r.job_id));
+        hasStartedRef.current = true; // they already had picks
+      }
+    };
+    loadPicks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId]);
+
+  // ====== SORT / FILTER ======
+  const handleSort = (key: keyof Job) => {
+    setSortConfig(prev => (prev.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }));
   };
-  
-  // Sort and filter jobs
+
   const sortAndFilterJobs = (jobsToSort: Job[]): Job[] => {
     let result = [...jobsToSort];
-    
-    // First, filter jobs by the driver's site - only show jobs from the same site
+
+    // Scope to site/company
     if (siteId && companyId) {
-      result = result.filter(job => job.siteId === siteId && job.companyId === companyId);
+      result = result.filter(j => j.siteId === siteId && j.companyId === companyId);
     } else if (driverInfo) {
-      // Fallback to use the driver's assigned site if not provided in state
-      result = result.filter(job => job.siteId === driverInfo.siteId && job.companyId === driverInfo.companyId);
+      result = result.filter(j => j.siteId === driverInfo.siteId && j.companyId === driverInfo.companyId);
     }
-    
-    // If driver is not airport certified, filter out airport jobs
+
+    // Airport eligibility
     if (driverInfo && !driverInfo.airportCertified) {
-      result = result.filter(job => !job.isAirport);
+      result = result.filter(j => !j.isAirport);
     }
-    
-    // Filter by search term
+
+    // Search
     if (filterConfig.searchTerm.trim() !== '') {
       const term = filterConfig.searchTerm.toLowerCase();
-      result = result.filter(job => 
-        job.jobId.toLowerCase().includes(term) ||
-        job.startTime.toLowerCase().includes(term) ||
-        job.weekDays.toLowerCase().includes(term)
-      );
+      result = result.filter(j => j.jobId.toLowerCase().includes(term) || j.startTime.toLowerCase().includes(term) || j.weekDays.toLowerCase().includes(term));
     }
-    
-    // Filter by start time range
-    result = result.filter(job => {
-      const jobMinutes = timeToMinutes(job.startTime);
-      return jobMinutes >= filterConfig.startTimeRange[0] && jobMinutes <= filterConfig.startTimeRange[1];
+
+    // Start time range
+    result = result.filter(j => {
+      const m = timeToMinutes(j.startTime);
+      return m >= filterConfig.startTimeRange[0] && m <= filterConfig.startTimeRange[1];
     });
-    
-    // Filter by airport status
+
+    // Airport only / non-airport
     if (filterConfig.showAirport !== null) {
-      result = result.filter(job => job.isAirport === filterConfig.showAirport);
+      result = result.filter(j => j.isAirport === filterConfig.showAirport);
     }
-    
-    // Filter by weekDays
+
+    // Weekday pattern
     if (filterConfig.weekDays) {
-      result = result.filter(job => job.weekDays.includes(filterConfig.weekDays));
+      result = result.filter(j => j.weekDays.includes(filterConfig.weekDays!));
     }
-    
-    // Sort the jobs
+
+    // Sort
     if (sortConfig.key) {
       result.sort((a, b) => {
         if (sortConfig.key === 'startTime') {
-          const timeA = timeToMinutes(a.startTime);
-          const timeB = timeToMinutes(b.startTime);
-          return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
+          const ta = timeToMinutes(a.startTime);
+          const tb = timeToMinutes(b.startTime);
+          return sortConfig.direction === 'asc' ? ta - tb : tb - ta;
         }
-        
-        if (a[sortConfig.key] < b[sortConfig.key]) {
-          return sortConfig.direction === 'asc' ? -1 : 1;
-        }
-        if (a[sortConfig.key] > b[sortConfig.key]) {
-          return sortConfig.direction === 'asc' ? 1 : -1;
-        }
+        const ka = a[sortConfig.key] as any;
+        const kb = b[sortConfig.key] as any;
+        if (ka < kb) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (ka > kb) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
       });
     }
-    
+
     return result;
   };
-  
-  // Sort all jobs
+
   const sortedJobs = sortAndFilterJobs(jobs);
-  
-  // Available jobs are those not already selected
-  const availableJobs = sortedJobs.filter(job => !jobPreferences.includes(job.jobId));
-  
-  // For sorting by start time
-  const sortedAvailableJobs = [...availableJobs].sort((a, b) => {
-    return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
-  });
-  
-  const addJobPreference = (jobId: string) => {
-    setJobPreferences([...jobPreferences, jobId]);
-  };
-  
-  const removeJobPreference = (index: number) => {
-    setJobPreferences(jobPreferences.filter((_, i) => i !== index));
-  };
-  
+  const availableJobs = sortedJobs.filter(j => !jobPreferences.includes(j.jobId));
+
+  const addJobPreference = (jobId: string) => setJobPreferences(prev => [...prev, jobId]);
+  const removeJobPreference = (index: number) => setJobPreferences(prev => prev.filter((_, i) => i !== index));
   const moveJobUp = (index: number) => {
     if (index === 0) return;
-    const newPreferences = [...jobPreferences];
-    [newPreferences[index - 1], newPreferences[index]] = [newPreferences[index], newPreferences[index - 1]];
-    setJobPreferences(newPreferences);
+    const next = [...jobPreferences];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    setJobPreferences(next);
   };
-  
   const moveJobDown = (index: number) => {
     if (index === jobPreferences.length - 1) return;
-    const newPreferences = [...jobPreferences];
-    [newPreferences[index], newPreferences[index + 1]] = [newPreferences[index + 1], newPreferences[index]];
-    setJobPreferences(newPreferences);
+    const next = [...jobPreferences];
+    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    setJobPreferences(next);
   };
-  
-  const handleSubmit = () => {
+
+  // ====== SUPABASE: SAVE PICKS (wipe + upsert) ======
+  const persistToSupabase = async (picks: string[]) => {
+    if (!employeeId) return;
+
+    // 1) delete existing picks for this driver
+    const { error: delErr } = await supabase.from('driver_picks').delete().eq('driver_id', employeeId);
+    if (delErr) throw delErr;
+
+    if (picks.length === 0) return;
+
+    // 2) upsert new ordered picks
+    const nowIso = new Date().toISOString();
+    const rows = picks.map((jobId, idx) => ({
+      driver_id: employeeId,
+      job_id: jobId,
+      pick_order: idx + 1,
+      submitted_at: nowIso,
+      site_id: siteId ?? driverInfo?.siteId ?? null,
+      company_id: companyId ?? driverInfo?.companyId ?? null
+    }));
+
+    const { error: upErr } = await supabase.from('driver_picks').insert(rows);
+    if (upErr) throw upErr;
+  };
+
+  const handleSubmit = async () => {
     setIsSubmitting(true);
-    
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Persist to Supabase (authoritative)
+      await persistToSupabase(jobPreferences);
+
+      // Keep your local store behavior (so existing UI flows keep working)
       submitPreferences({
         driverId: employeeId || '',
         preferences: jobPreferences,
-        submissionTime: new Date().toISOString(),
+        submissionTime: new Date().toISOString()
       });
-      
-      setIsSubmitting(false);
-      
-      // Show toast notification but remain on the same page
+
       toast({
-        title: "Preferences Saved",
-        description: jobPreferences.length === 0 
-          ? "You've saved an empty preference list. No jobs will be assigned to you based on preferences."
-          : "Your job preferences have been successfully submitted.",
-        variant: "default",
+        title: 'Preferences Saved',
+        description:
+          jobPreferences.length === 0
+            ? "You've saved an empty preference list. No jobs will be assigned to you based on preferences."
+            : 'Your job preferences have been successfully submitted.'
       });
-    }, 800);
-  };
-  
-  const exitPage = () => {
-    navigate('/');
+
+      if (driverInfo) {
+        logDriverActivity({
+          driverId: employeeId || '',
+          driverName: driverInfo.name,
+          action: 'save',
+          details: `Saved ${jobPreferences.length} picks`
+        });
+      }
+      hasStartedRef.current = true;
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: 'Save Failed',
+        description: 'We could not save your preferences. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const exitPage = () => navigate('/');
+
   // Reset filters
-  const resetFilters = () => {
+  const resetFilters = () =>
     setFilterConfig({
       startTimeRange: [0, 24 * 60 - 1],
       showAirport: null,
       weekDays: null,
-      searchTerm: '',
+      searchTerm: ''
     });
-  };
 
-  // Extract unique weekdays for filter options
-  const weekDayOptions = [...new Set(jobs.map(job => job.weekDays))];
+  // Extract unique weekdays
+  const weekDayOptions = [...new Set(jobs.map(j => j.weekDays))];
 
-  // Get active filter count
+  // Active filter count
   const getActiveFilterCount = () => {
     let count = 0;
-    
     if (filterConfig.startTimeRange[0] > 0 || filterConfig.startTimeRange[1] < 24 * 60 - 1) count++;
     if (filterConfig.showAirport !== null) count++;
     if (filterConfig.weekDays !== null) count++;
     if (filterConfig.searchTerm.trim() !== '') count++;
-    
     return count;
   };
 
-  // Function to render job details with airport indicator
-  const renderJobDetails = (jobId: string) => {
-    const job = jobs.find(job => job.jobId === jobId);
-    if (!job) return jobId;
-    
-    return (
-      <div className="flex items-center">
-        <span>{jobId} • {job.startTime} • {job.weekDays}</span>
-        {job.isAirport && (
-          <Badge variant="outline" className="ml-2 flex items-center">
-            <Plane size={14} className="mr-1" /> Airport
-          </Badge>
-        )}
-      </div>
-    );
-  };
-
-  // Print functionality
+  // Print
   const printJobPreferences = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const driverName = driverInfo?.name || "Unknown Driver";
-    const seniorityNumber = driverInfo?.seniorityNumber || "N/A";
+    const driverName = driverInfo?.name || 'Unknown Driver';
+    const seniorityNumber = driverInfo?.seniorityNumber || 'N/A';
     const currentDate = new Date().toLocaleDateString();
-    
-    // Create print content
-    let printContent = `
+
+    let html = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -352,22 +352,10 @@ function DriverPreferencesPage() {
       <body>
         <div class="header">
           <h1>Job Preferences</h1>
-          <div class="info-row">
-            <div class="info-label">Driver Name:</div>
-            <div>${driverName}</div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Employee ID:</div>
-            <div>${employeeId}</div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Seniority Number:</div>
-            <div>${seniorityNumber}</div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Date Submitted:</div>
-            <div>${currentDate}</div>
-          </div>
+          <div class="info-row"><div class="info-label">Driver Name:</div><div>${driverName}</div></div>
+          <div class="info-row"><div class="info-label">Employee ID:</div><div>${employeeId}</div></div>
+          <div class="info-row"><div class="info-label">Seniority Number:</div><div>${seniorityNumber}</div></div>
+          <div class="info-row"><div class="info-label">Date Submitted:</div><div>${currentDate}</div></div>
         </div>
 
         <table>
@@ -382,54 +370,43 @@ function DriverPreferencesPage() {
           </thead>
           <tbody>
     `;
-    
-    // Add job preferences to table or show "No preferences" message
+
     if (jobPreferences.length === 0) {
-      printContent += `
+      html += `
         <tr>
-          <td colspan="5" style="text-align: center; padding: 20px;">
+          <td colspan="5" style="text-align:center;padding:20px;">
             No job preferences have been selected. The driver has chosen to submit an empty preference list.
           </td>
-        </tr>
-      `;
+        </tr>`;
     } else {
-      // Add job preferences to table
-      jobPreferences.forEach((jobId, index) => {
-        const job = jobs.find(job => job.jobId === jobId);
+      jobPreferences.forEach((jobId, i) => {
+        const job = jobs.find(j => j.jobId === jobId);
         if (job) {
-          printContent += `
+          html += `
             <tr>
-              <td>Pick ${index + 1}</td>
+              <td>Pick ${i + 1}</td>
               <td>${job.jobId}</td>
               <td>${job.startTime}</td>
               <td>${job.weekDays}</td>
               <td class="${job.isAirport ? 'airport' : ''}">${job.isAirport ? 'Airport' : 'Regular'}</td>
-            </tr>
-          `;
+            </tr>`;
         }
       });
     }
-    
-    printContent += `
+
+    html += `
           </tbody>
         </table>
-        
-        <div class="footer">
-          This is an official record of your job preferences. Please keep for your records.
-        </div>
+        <div class="footer">This is an official record of your job preferences. Please keep for your records.</div>
       </body>
-      </html>
-    `;
-    
+      </html>`;
+
     printWindow.document.open();
-    printWindow.document.write(printContent);
+    printWindow.document.write(html);
     printWindow.document.close();
-    
-    // Wait for content to load then print
+
     setTimeout(() => {
       printWindow.print();
-      
-      // Log the print activity
       if (driverInfo) {
         logDriverActivity({
           driverId: employeeId || '',
@@ -464,7 +441,7 @@ function DriverPreferencesPage() {
   return (
     <MainLayout title="Job Preferences">
       <div className="jss-container py-8">
-        {/* Driver Information Card */}
+        {/* Driver Info */}
         <Card className="mb-6">
           <CardHeader className="pb-3">
             <CardTitle>Driver Information</CardTitle>
@@ -473,7 +450,7 @@ function DriverPreferencesPage() {
             <div className="grid md:grid-cols-4 gap-4 items-center">
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Driver Name</p>
-                <p className="text-lg font-medium">{driverInfo?.name || "Unknown Driver"}</p>
+                <p className="text-lg font-medium">{driverInfo?.name || 'Unknown Driver'}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Employee ID</p>
@@ -482,16 +459,16 @@ function DriverPreferencesPage() {
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Facility</p>
                 <p className="text-lg font-medium">
-                  {siteName || driverInfo?.siteId || "Unknown"}
+                  {siteName || driverInfo?.siteId || 'Unknown'}
                   <Badge variant="outline" className="ml-2">
-                    {siteId || driverInfo?.siteId || ""}
+                    {siteId || driverInfo?.siteId || ''}
                   </Badge>
                 </p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Seniority Number</p>
                 <Badge variant="outline" className="text-base px-3 py-1 font-bold">
-                  {driverInfo?.seniorityNumber || "N/A"}
+                  {driverInfo?.seniorityNumber || 'N/A'}
                 </Badge>
               </div>
             </div>
@@ -512,9 +489,7 @@ function DriverPreferencesPage() {
               {driverInfo && !driverInfo.airportCertified && (
                 <Alert className="mt-2">
                   <Info className="h-4 w-4" />
-                  <AlertDescription className="text-sm">
-                    Airport jobs are not displayed as you are not airport certified.
-                  </AlertDescription>
+                  <AlertDescription className="text-sm">Airport jobs are not displayed as you are not airport certified.</AlertDescription>
                 </Alert>
               )}
             </CardDescription>
@@ -527,27 +502,29 @@ function DriverPreferencesPage() {
               </Alert>
             )}
           </CardHeader>
+
           <CardContent className="space-y-6">
-            {/* Job List with Sortable Headers and Filter */}
+            {/* Jobs table */}
             <div className="overflow-x-auto">
               <div className="flex justify-between mb-3 items-center">
                 <h3 className="text-sm font-semibold">Available Jobs ({availableJobs.length})</h3>
-                
+
                 <div className="flex gap-2">
-                  {/* Search input */}
                   <div className="relative w-[200px]">
-                    <Input 
-                      placeholder="Search jobs..." 
+                    <Input
+                      placeholder="Search jobs..."
                       value={filterConfig.searchTerm}
-                      onChange={(e) => setFilterConfig({...filterConfig, searchTerm: e.target.value})}
+                      onChange={e => setFilterConfig({ ...filterConfig, searchTerm: e.target.value })}
                       className="h-9 pl-8"
                     />
                     <div className="absolute left-2 top-2 text-muted-foreground">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.3-4.3"></path>
+                      </svg>
                     </div>
                   </div>
 
-                  {/* Filter button with popover */}
                   <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
                     <PopoverTrigger asChild>
                       <Button variant="outline" size="sm" className="relative">
@@ -564,44 +541,39 @@ function DriverPreferencesPage() {
                       <div className="space-y-4 p-2">
                         <div className="flex items-center justify-between">
                           <h4 className="font-semibold text-sm">Filter Jobs</h4>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={resetFilters}
-                            className="h-7 text-xs"
-                          >
+                          <Button variant="ghost" size="sm" onClick={resetFilters} className="h-7 text-xs">
                             Reset
                           </Button>
                         </div>
-                        
-                        {/* Start time range filter with circular handles on both ends */}
+
+                        {/* Start time range */}
                         <div className="space-y-2">
                           <h5 className="text-sm font-medium">Start Time Range</h5>
                           <div className="px-2">
                             <div className="relative mt-6 mb-6">
-                              <Slider 
-                                value={filterConfig.startTimeRange} 
-                                min={0} 
-                                max={24 * 60 - 1} 
-                                step={15} 
-                                onValueChange={(value) => setFilterConfig({...filterConfig, startTimeRange: [value[0], value[1]]})}
+                              <Slider
+                                value={filterConfig.startTimeRange}
+                                min={0}
+                                max={24 * 60 - 1}
+                                step={15}
+                                onValueChange={value => setFilterConfig({ ...filterConfig, startTimeRange: [value[0], value[1]] })}
                                 className="my-6"
                               />
-                              {/* Styled circular handles on both ends */}
-                              <div 
+                              {/* handles (decorative) */}
+                              <div
                                 className="absolute w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md"
-                                style={{ 
-                                  left: `calc(${(filterConfig.startTimeRange[0] / ((24 * 60 - 1))) * 100}% - 8px)`, 
-                                  top: '50%', 
+                                style={{
+                                  left: `calc(${(filterConfig.startTimeRange[0] / (24 * 60 - 1)) * 100}% - 8px)`,
+                                  top: '50%',
                                   transform: 'translateY(-50%)',
                                   zIndex: 10
                                 }}
                               />
-                              <div 
+                              <div
                                 className="absolute w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md"
-                                style={{ 
-                                  left: `calc(${(filterConfig.startTimeRange[1] / ((24 * 60 - 1))) * 100}% - 8px)`, 
-                                  top: '50%', 
+                                style={{
+                                  left: `calc(${(filterConfig.startTimeRange[1] / (24 * 60 - 1)) * 100}% - 8px)`,
+                                  top: '50%',
                                   transform: 'translateY(-50%)',
                                   zIndex: 10
                                 }}
@@ -614,32 +586,31 @@ function DriverPreferencesPage() {
                           </div>
                         </div>
 
-                        {/* Only show Airport job filter if driver is airport certified */}
+                        {/* Airport filter (if certified) */}
                         {driverInfo && driverInfo.airportCertified && (
                           <div className="space-y-2">
                             <h5 className="text-sm font-medium">Job Type</h5>
                             <div className="flex flex-wrap gap-2">
                               <Button
-                                variant={filterConfig.showAirport === null ? "secondary" : "outline"}
+                                variant={filterConfig.showAirport === null ? 'secondary' : 'outline'}
                                 size="sm"
-                                onClick={() => setFilterConfig({...filterConfig, showAirport: null})}
+                                onClick={() => setFilterConfig({ ...filterConfig, showAirport: null })}
                                 className="text-xs h-7"
                               >
                                 All Jobs
                               </Button>
                               <Button
-                                variant={filterConfig.showAirport === true ? "secondary" : "outline"}
+                                variant={filterConfig.showAirport === true ? 'secondary' : 'outline'}
                                 size="sm"
-                                onClick={() => setFilterConfig({...filterConfig, showAirport: true})}
+                                onClick={() => setFilterConfig({ ...filterConfig, showAirport: true })}
                                 className="text-xs h-7"
                               >
-                                <Plane size={12} className="mr-1" />
-                                Airport Only
+                                <Plane size={12} className="mr-1" /> Airport Only
                               </Button>
                               <Button
-                                variant={filterConfig.showAirport === false ? "secondary" : "outline"}
+                                variant={filterConfig.showAirport === false ? 'secondary' : 'outline'}
                                 size="sm"
-                                onClick={() => setFilterConfig({...filterConfig, showAirport: false})}
+                                onClick={() => setFilterConfig({ ...filterConfig, showAirport: false })}
                                 className="text-xs h-7"
                               >
                                 Non-Airport
@@ -648,24 +619,24 @@ function DriverPreferencesPage() {
                           </div>
                         )}
 
-                        {/* Week days filter */}
+                        {/* Week days */}
                         <div className="space-y-2">
                           <h5 className="text-sm font-medium">Week Days</h5>
                           <div className="flex flex-wrap gap-2">
                             <Button
-                              variant={filterConfig.weekDays === null ? "secondary" : "outline"}
+                              variant={filterConfig.weekDays === null ? 'secondary' : 'outline'}
                               size="sm"
-                              onClick={() => setFilterConfig({...filterConfig, weekDays: null})}
+                              onClick={() => setFilterConfig({ ...filterConfig, weekDays: null })}
                               className="text-xs h-7"
                             >
                               All Schedules
                             </Button>
-                            {weekDayOptions.map((option) => (
+                            {weekDayOptions.map(option => (
                               <Button
                                 key={option}
-                                variant={filterConfig.weekDays === option ? "secondary" : "outline"}
+                                variant={filterConfig.weekDays === option ? 'secondary' : 'outline'}
                                 size="sm"
-                                onClick={() => setFilterConfig({...filterConfig, weekDays: option})}
+                                onClick={() => setFilterConfig({ ...filterConfig, weekDays: option })}
                                 className="text-xs h-7"
                               >
                                 {option}
@@ -686,43 +657,33 @@ function DriverPreferencesPage() {
                       <th className="font-semibold text-left p-2 pl-3 text-sm cursor-pointer" onClick={() => handleSort('jobId')}>
                         <div className="flex items-center">
                           Job ID
-                          {sortConfig.key === 'jobId' ? (
-                            sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />
-                          ) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                          {sortConfig.key === 'jobId' ? (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
                         </div>
                       </th>
                       <th className="font-semibold text-left p-2 text-sm cursor-pointer" onClick={() => handleSort('startTime')}>
                         <div className="flex items-center">
                           Start Time
-                          {sortConfig.key === 'startTime' ? (
-                            sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />
-                          ) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                          {sortConfig.key === 'startTime' ? (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
                         </div>
                       </th>
                       <th className="font-semibold text-left p-2 text-sm cursor-pointer" onClick={() => handleSort('weekDays')}>
                         <div className="flex items-center">
                           Days of Week
-                          {sortConfig.key === 'weekDays' ? (
-                            sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />
-                          ) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                          {sortConfig.key === 'weekDays' ? (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
                         </div>
                       </th>
                       <th className="font-semibold text-left p-2 text-sm cursor-pointer" onClick={() => handleSort('isAirport')}>
                         <div className="flex items-center">
                           Location
-                          {sortConfig.key === 'isAirport' ? (
-                            sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />
-                          ) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                          {sortConfig.key === 'isAirport' ? (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
                         </div>
                       </th>
-                      <th className="font-semibold text-right p-2 pr-3 text-sm">
-                        Action
-                      </th>
+                      <th className="font-semibold text-right p-2 pr-3 text-sm">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {availableJobs.length > 0 ? (
-                      availableJobs.slice(0, 10).map((job) => (
+                      availableJobs.slice(0, 10).map(job => (
                         <tr key={job.jobId} className="border-t hover:bg-muted/30">
                           <td className="p-2 pl-3 text-sm">{job.jobId}</td>
                           <td className="p-2 text-sm">{job.startTime}</td>
@@ -733,16 +694,11 @@ function DriverPreferencesPage() {
                                 <Plane size={12} className="mr-1" /> Airport
                               </Badge>
                             ) : (
-                              "Regular"
+                              'Regular'
                             )}
                           </td>
                           <td className="p-2 pr-3 text-right">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => addJobPreference(job.jobId)}
-                              className="h-7"
-                            >
+                            <Button size="sm" variant="ghost" onClick={() => addJobPreference(job.jobId)} className="h-7">
                               <Plus size={14} className="mr-1" /> Add
                             </Button>
                           </td>
@@ -779,10 +735,7 @@ function DriverPreferencesPage() {
                     const job = jobs.find(j => j.jobId === jobId);
                     return (
                       <div key={index} className="flex items-center gap-2">
-                        <div className="min-w-[60px] font-medium">
-                          Pick {index + 1}
-                        </div>
-                        {/* Job details display - no dropdown */}
+                        <div className="min-w-[60px] font-medium">Pick {index + 1}</div>
                         <div className="flex-1 border rounded-md p-2 bg-muted/20">
                           <div className="flex items-center">
                             <span>
@@ -796,27 +749,13 @@ function DriverPreferencesPage() {
                           </div>
                         </div>
                         <div className="flex gap-1">
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            onClick={() => moveJobUp(index)}
-                            disabled={index === 0}
-                          >
+                          <Button variant="outline" size="icon" onClick={() => moveJobUp(index)} disabled={index === 0}>
                             <ChevronUp size={18} />
                           </Button>
-                          <Button 
-                            variant="outline" 
-                            size="icon"
-                            onClick={() => moveJobDown(index)}
-                            disabled={index === jobPreferences.length - 1}
-                          >
+                          <Button variant="outline" size="icon" onClick={() => moveJobDown(index)} disabled={index === jobPreferences.length - 1}>
                             <ChevronDown size={18} />
                           </Button>
-                          <Button 
-                            variant="outline" 
-                            size="icon"
-                            onClick={() => removeJobPreference(index)}
-                          >
+                          <Button variant="outline" size="icon" onClick={() => removeJobPreference(index)}>
                             <Trash2 size={18} className="text-destructive" />
                           </Button>
                         </div>
@@ -825,43 +764,37 @@ function DriverPreferencesPage() {
                   })}
                 </div>
               )}
-              
+
               <Alert className="bg-muted/50 mt-4">
                 <Info className="h-4 w-4" />
                 <AlertDescription className="text-sm">
                   {jobPreferences.length > 0 ? (
                     <>
-                      You've selected {jobPreferences.length} job{jobPreferences.length !== 1 ? 's' : ''}.
-                      Jobs will be assigned based on seniority and your preference order.
+                      You've selected {jobPreferences.length} job{jobPreferences.length !== 1 ? 's' : ''}. Jobs will be assigned
+                      based on seniority and your preference order.
                     </>
                   ) : (
-                    <>
-                      You haven't selected any jobs. You can still save an empty preference list, but
-                      you won't be assigned a job based on your preferences.
-                    </>
+                    <>You haven't selected any jobs. You can still save an empty preference list, but you won't be assigned a job based on your preferences.</>
                   )}
                 </AlertDescription>
               </Alert>
             </div>
           </CardContent>
+
           <CardFooter className="flex justify-between flex-wrap gap-2">
             <div className="flex gap-2">
               <Button variant="outline" onClick={exitPage}>
                 <LogOut size={18} className="mr-1" /> Exit
               </Button>
-              
-              {/* Print button - only show if enabled in system settings */}
+
               {systemSettings.allowDriverPrinting && (
                 <Button variant="outline" onClick={printJobPreferences}>
                   <Printer size={18} className="mr-1" /> Print
                 </Button>
               )}
             </div>
-            
-            <Button 
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-            >
+
+            <Button onClick={handleSubmit} disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
                   <Loader2 size={18} className="mr-1 animate-spin" /> Submitting...
