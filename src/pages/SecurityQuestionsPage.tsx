@@ -1,105 +1,102 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { supabase } from "../supabase";
+// If your Vite/tsconfig path alias "@" -> "src" is NOT configured,
+// change the next line to:  import { supabase } from "../supabase";
+import { supabase } from "@/supabase";
 
-/**
- * SecurityQuestionsPage
- * - Reads ?empId=1234567 from the URL
- * - Fetches the two *stored* questions for that employee
- * - Renders both question prompts and two answer boxes
- *
- * NOTE:
- *  - This only *displays* the questions and gathers answers.
- *  - We’ll wire up answer verification and “set new password” in the next step.
- */
+type SecurityRow = {
+  question1: string | null;
+  question2: string | null;
+};
+
 export default function SecurityQuestionsPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const empId = params.get("empId") ?? "";
 
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [q1, setQ1] = useState<string>("");
-  const [q2, setQ2] = useState<string>("");
-
+  const [q1, setQ1] = useState<string>("Question 1");
+  const [q2, setQ2] = useState<string>("Question 2");
   const [a1, setA1] = useState("");
   const [a2, setA2] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
+  // Load the question prompts for this driver
   useEffect(() => {
-    if (!empId) {
-      navigate("/driver-login");
-      return;
-    }
+    let isMounted = true;
 
-    const fetchQuestions = async () => {
+    async function loadQuestions() {
       setLoading(true);
-      setLoadError(null);
+      setError(null);
 
-      // Try a couple of common table/column shapes to be resilient.
-      // Adjust the table/column names below to match your schema if needed.
-      const attempts: Array<{
-        table: string;
-        columns: string;
-        where: { col: string; val: string };
-        map: (row: any) => { q1: string; q2: string };
-      }> = [
-        // Option A: driver_security_questions(driver_id, q1_text, q2_text)
-        {
-          table: "driver_security_questions",
-          columns: "q1_text, q2_text, driver_id",
-          where: { col: "driver_id", val: empId },
-          map: (row) => ({ q1: row?.q1_text ?? "", q2: row?.q2_text ?? "" }),
-        },
-        // Option B: security_questions(emp_id, question1, question2)
-        {
-          table: "security_questions",
-          columns: "question1, question2, emp_id",
-          where: { col: "emp_id", val: empId },
-          map: (row) => ({ q1: row?.question1 ?? "", q2: row?.question2 ?? "" }),
-        },
-      ];
+      if (!empId) {
+        setError("Missing employee id. Please return to Login.");
+        setLoading(false);
+        return;
+      }
 
-      for (const attempt of attempts) {
-        const { data, error } = await supabase
-          .from(attempt.table)
-          .select(attempt.columns)
-          .eq(attempt.where.col, attempt.where.val)
-          .maybeSingle();
+      // Adjust table & column names here to match your schema.
+      // Expected: one row with columns { question1, question2 } for the given employee.
+      const { data, error } = await supabase
+        .from<SecurityRow>("driver_security")
+        .select("question1, question2")
+        .eq("employee_id", empId)
+        .maybeSingle();
 
-        if (error) {
-          // Keep trying the next shape; only surface the last error if nothing works.
-          continue;
-        }
+      if (!isMounted) return;
 
-        if (data) {
-          const mapped = attempt.map(data);
-          setQ1(mapped.q1);
-          setQ2(mapped.q2);
-          setLoading(false);
-          return;
-        }
+      if (error) {
+        // Fall back to placeholders; keep going so the page still renders.
+        console.error("Load security questions error:", error);
+        setError(
+          "We couldn’t load your security questions. You can still try to continue."
+        );
+      } else if (data) {
+        if (data.question1) setQ1(data.question1);
+        if (data.question2) setQ2(data.question2);
       }
 
       setLoading(false);
-      setLoadError(
-        "We couldn’t find security questions for this driver. Please contact your site administrator."
-      );
+    }
+
+    loadQuestions();
+    return () => {
+      isMounted = false;
     };
+  }, [empId]);
 
-    fetchQuestions();
-  }, [empId, navigate]);
+  const handleContinue = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  const handleContinue = async () => {
-    // In the next step we’ll verify answers and then navigate to
-    // a “Set New Password” page. For now, just require both answers.
-    if (!a1.trim() || !a2.trim()) return;
+    // (Optional) Simple client-side checks
+    if (!a1.trim() || !a2.trim()) {
+      setError("Please answer both questions.");
+      return;
+    }
 
-    // Placeholder: keep the driver here (or navigate onward when verification is implemented).
-    // navigate(`/set-new-password?empId=${encodeURIComponent(empId)}`);
+    // If you eventually add server-side verification, call an RPC or REST function here.
+    // For now, store answers briefly so the next step can read them if needed.
+    sessionStorage.setItem("sq_empId", empId);
+    sessionStorage.setItem("sq_a1", a1.trim().toLowerCase());
+    sessionStorage.setItem("sq_a2", a2.trim().toLowerCase());
+
+    // Send them back to the login page with a reset flag.
+    // If your DriverLoginPage shows "set new password" when it sees ?reset=1,
+    // this will drop them straight into the new password form.
+    navigate(`/driver-login?empId=${encodeURIComponent(empId)}&reset=1`);
   };
 
-  if (!empId) return null;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-muted/20">
+        <div className="mx-auto max-w-3xl px-4 py-12">
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5 px-6 py-8 sm:px-10">
+            <p className="text-sm text-muted-foreground">Loading questions…</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -111,61 +108,61 @@ export default function SecurityQuestionsPage() {
               Answer your security questions to continue resetting your password.
             </p>
 
-            <div className="mt-8 space-y-6">
-              {loading ? (
-                <p className="text-sm text-muted-foreground">Loading questions…</p>
-              ) : loadError ? (
-                <p className="text-sm text-rose-600">{loadError}</p>
-              ) : (
-                <>
-                  {/* Question 1 */}
-                  <div>
-                    <label className="block text-sm font-medium">{q1 || "Question 1"}</label>
-                    <input
-                      type="text"
-                      value={a1}
-                      onChange={(e) => setA1(e.target.value)}
-                      className="mt-2 w-full rounded-md border px-3 py-2 text-sm shadow-sm outline-none focus:ring-2"
-                      placeholder="Your answer"
-                    />
-                  </div>
+            {empId && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Employee ID detected: <span className="font-mono">{empId}</span>
+              </p>
+            )}
 
-                  {/* Question 2 */}
-                  <div>
-                    <label className="block text-sm font-medium">{q2 || "Question 2"}</label>
-                    <input
-                      type="text"
-                      value={a2}
-                      onChange={(e) => setA2(e.target.value)}
-                      className="mt-2 w-full rounded-md border px-3 py-2 text-sm shadow-sm outline-none focus:ring-2"
-                      placeholder="Your answer"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+            {error && (
+              <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {error}
+              </div>
+            )}
 
-            <div className="mt-8 flex gap-3">
-              <Link
-                to="/driver-login"
-                className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted"
-              >
-                Back to Login
-              </Link>
+            <form onSubmit={handleContinue} className="mt-6 space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {q1}
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  value={a1}
+                  onChange={(e) => setA1(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
 
-              <button
-                type="button"
-                onClick={handleContinue}
-                disabled={loading || !!loadError || !a1.trim() || !a2.trim()}
-                className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Continue
-              </button>
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {q2}
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  value={a2}
+                  onChange={(e) => setA2(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
 
-            <p className="mt-4 text-xs text-muted-foreground">
-              Employee ID detected: <span className="font-mono">{empId}</span>
-            </p>
+              <div className="flex items-center gap-3">
+                <Link
+                  to="/driver-login"
+                  className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted"
+                >
+                  Back to Login
+                </Link>
+
+                <button
+                  type="submit"
+                  className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90"
+                >
+                  Continue
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>
