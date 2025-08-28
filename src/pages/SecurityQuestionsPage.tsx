@@ -1,102 +1,114 @@
-import React, { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-
-function useQuery() {
-  const { search } = useLocation();
-  return useMemo(() => new URLSearchParams(search), [search]);
-}
+import React, { useState } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 
 export default function SecurityQuestionsPage() {
-  const query = useQuery();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const empId = params.get("empId") ?? "";
 
-  // We pass the employee id around via query string (?empId=1234567)
-  const empId = query.get("empId") ?? "";
-  const [answer1, setAnswer1] = useState("");
-  const [answer2, setAnswer2] = useState("");
+  const [answers, setAnswers] = useState({
+    q1: "",
+    q2: "",
+    q3: "",
+  });
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault(); // ⛔️ stop default navigation
-    setError(null);
-    setSubmitting(true);
+  const onChange =
+    (key: keyof typeof answers) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setAnswers((s) => ({ ...s, [key]: e.target.value }));
+    };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empId) {
+      // No employee id in URL -> send back to login
+      navigate("/driver-login");
+      return;
+    }
 
     try {
-      // TODO: Replace this stub with your real verification call
-      const ok = answer1.trim().length > 0 && answer2.trim().length > 0;
+      setSubmitting(true);
 
-      if (!ok) {
-        setError("Please answer both questions.");
-        setSubmitting(false);
-        return;
-      }
-
-      // On success, send the user to password setup page
-      navigate(`/reset-password/setup?empId=${encodeURIComponent(empId)}`);
-    } catch (err) {
-      setError("Something went wrong. Please try again.");
+      // TODO: Replace this with a real verification call to your backend / Supabase RPC
+      // For now we just proceed to the "set new password" step.
+      navigate(`/set-new-password?empId=${encodeURIComponent(empId)}`);
+    } finally {
       setSubmitting(false);
     }
-  }
+  };
 
   return (
-    <div className="container mx-auto max-w-2xl px-4 py-12">
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <h1 className="mb-2 text-2xl font-semibold">Answer Security Questions</h1>
-        <p className="mb-6 text-sm text-muted-foreground">
-          We detected Employee ID: <span className="font-medium">{empId || "Unknown"}</span>
-        </p>
+    <div className="min-h-screen bg-muted/20">
+      <div className="mx-auto max-w-3xl px-4 py-12">
+        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+          <div className="px-6 py-8 sm:px-10">
+            <h1 className="text-2xl font-semibold tracking-tight">Security Questions</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Answer your security questions to continue resetting your password.
+            </p>
 
-        <form onSubmit={onSubmit} className="space-y-5">
-          <div>
-            <label className="mb-1 block text-sm font-medium">
-              Question 1
-            </label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              value={answer1}
-              onChange={(e) => setAnswer1(e.target.value)}
-              placeholder="Your answer"
-            />
+            <form onSubmit={onSubmit} className="mt-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium">Question 1</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                  value={answers.q1}
+                  onChange={onChange("q1")}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Question 2</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                  value={answers.q2}
+                  onChange={onChange("q2")}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Question 3</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                  value={answers.q3}
+                  onChange={onChange("q3")}
+                  required
+                />
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <Link
+                  to="/driver-login"
+                  className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted"
+                >
+                  Back to Login
+                </Link>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-60"
+                >
+                  {submitting ? "Checking…" : "Continue"}
+                </button>
+              </div>
+
+              {empId ? (
+                <p className="mt-4 text-xs text-muted-foreground">
+                  Employee ID detected: <span className="font-mono">{empId}</span>
+                </p>
+              ) : (
+                <p className="mt-4 text-xs text-rose-600">
+                  No Employee ID in URL. Please return to login and start again.
+                </p>
+              )}
+            </form>
           </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium">
-              Question 2
-            </label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              value={answer2}
-              onChange={(e) => setAnswer2(e.target.value)}
-              placeholder="Your answer"
-            />
-          </div>
-
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-            >
-              {submitting ? "Checking…" : "Continue"}
-            </button>
-
-            <button
-              type="button"
-              className="inline-flex items-center rounded-md border px-4 py-2 hover:bg-gray-50"
-              onClick={() => navigate("/driver-login")}
-            >
-              Back to Login
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   );
