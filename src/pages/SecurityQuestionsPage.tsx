@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 // If your Vite/tsconfig path alias "@" -> "src" is NOT configured,
 // change the next line to:  import { supabase } from "../supabase";
-import { supabase } from "@/supabase";
+import { supabase } from "../lib/supabase";
 
 type SecurityRow = {
   question1: string | null;
