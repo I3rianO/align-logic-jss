@@ -20,6 +20,7 @@ import ActivityLogPage from "./pages/admin/ActivityLogPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import MasterAdminPage from "./pages/admin/MasterAdminPage";
 import Footer from "./components/Footer";   // ✅ import Footer
+import ResetPasswordPage from "./pages/ResetPasswordPage";  // ✅ NEW import
 
 // Loading fallback
 const LoadingFallback = () => (
@@ -39,15 +40,16 @@ function App() {
   
   return (
     <TooltipProvider>
-      <div className="flex flex-col min-h-screen">   {/* ✅ wrapper for full height */}
+      <div className="flex flex-col min-h-screen">
         <BrowserRouter>
           <Suspense fallback={<LoadingFallback />}>
-            <div className="flex-1">   {/* ✅ main content area */}
+            <div className="flex-1">
               <Routes>
                 {/* Main Routes */}
                 <Route path="/" element={<HomePage />} />
                 <Route path="/driver-login" element={<DriverLoginPage />} />
                 <Route path="/driver-preferences" element={<DriverPreferencesPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} /> {/* ✅ NEW route */}
                 <Route path="/admin-portal" element={<AdminPortalPage />} />
                 <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
                 
@@ -63,7 +65,6 @@ function App() {
                 <Route path="/admin/statistics" element={<StatisticsPage />} />
                 <Route path="/admin/activity-log" element={<ActivityLogPage />} />
                 <Route path="/admin/system-settings" element={<SystemSettingsPage />} />
-                {/* Master Admin route - protected by authorization checks inside the component */}
                 <Route path="/admin/master-admin" element={<MasterAdminPage />} />
                 
                 {/* 404 Route */}
