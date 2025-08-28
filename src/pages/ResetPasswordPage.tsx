@@ -4,56 +4,70 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const empId = params.get("empId") ?? "";
 
-  const handleReset = () => {
-    if (!empId) {
-      // No employee id in the URL; send them back to login
-      navigate("/driver-login");
-      return;
-    }
-    // Hand off to the Security Questions flow and carry the empId through.
-    navigate(`/security-questions?empId=${encodeURIComponent(empId)}`);
+  // Be forgiving about the param name: support emplid, empId, employee_id
+  const rawEmpId =
+    params.get("emplid") ||
+    params.get("empId") ||
+    params.get("employee_id") ||
+    "";
+
+  const empId = (rawEmpId || "").trim();
+
+  const goNext = () => {
+    if (!empId) return;
+    // Always carry the employee id through to the next step
+    navigate(`/security-questions?emplid=${encodeURIComponent(empId)}`, {
+      replace: true,
+    });
   };
 
+  const missingId = !empId;
+
   return (
-    <div className="min-h-screen bg-muted/20">
-      <div className="mx-auto max-w-3xl px-4 py-12">
-        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
-          <div className="px-6 py-8 sm:px-10">
-            <h1 className="text-2xl font-semibold tracking-tight">Reset Your Password</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Answer your security questions to reset your password.
-            </p>
+    <div className="container mx-auto max-w-3xl px-6 py-12">
+      <div className="rounded-xl border bg-white p-8 shadow-sm">
+        <h1 className="mb-6 text-2xl font-semibold">Reset Your Password</h1>
 
-            <div className="mt-6 flex gap-3">
-              <Link
-                to="/driver-login"
-                className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted"
-              >
-                Back to Login
-              </Link>
+        <p className="mb-6 text-muted-foreground">
+          Answer your security questions to reset your password.
+        </p>
 
-              <button
-                type="button"
-                onClick={handleReset}
-                className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90"
-              >
-                Reset Password
-              </button>
-            </div>
-
-            {/* Tiny helper so you can see what empId is being carried along */}
-            {empId ? (
-              <p className="mt-4 text-xs text-muted-foreground">
-                Employee ID detected: <span className="font-mono">{empId}</span>
-              </p>
-            ) : (
-              <p className="mt-4 text-xs text-rose-600">
-                No Employee ID in URL. Please return to login and start again.
-              </p>
-            )}
+        {missingId ? (
+          <div className="mb-6 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+            No Employee ID in URL. Please return to login and start again.
           </div>
+        ) : (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Employee ID detected: <span className="font-mono">{empId}</span>
+          </div>
+        )}
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            to="/driver-login"
+            className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+          >
+            Back to Login
+          </Link>
+
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={missingId}
+            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-white ${
+              missingId
+                ? "cursor-not-allowed bg-gray-400"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
+            title={
+              missingId
+                ? "Employee ID not found in the URL"
+                : "Continue to security questions"
+            }
+          >
+            Reset Password
+          </button>
         </div>
       </div>
     </div>
