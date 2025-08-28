@@ -5,10 +5,7 @@ import { Toaster } from "./components/ui/toaster";
 import { TooltipProvider } from "./components/ui/tooltip";
 
 import HomePage from "./pages/HomePage";
-import DriverLoginPage from "./pages/DriverLoginPage";
-import DriverPreferencesPage from "./pages/DriverPreferencesPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";     // ✅ already present
-import SecurityQuestionsPage from "./pages/SecurityQuestionsPage"; // ✅ NEW
+import NotFoundPage from "./pages/NotFoundPage";
 
 import AdminPortalPage from "./pages/AdminPortalPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
@@ -22,14 +19,21 @@ import DisputeResolutionPage from "./pages/admin/DisputeResolutionPage";
 import ActivityLogPage from "./pages/admin/ActivityLogPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import MasterAdminPage from "./pages/admin/MasterAdminPage";
+
+import DriverLoginPage from "./pages/DriverLoginPage";
+import DriverPreferencesPage from "./pages/DriverPreferencesPage";
+
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import SecurityQuestionsPage from "./pages/SecurityQuestionsPage";
+
 import HealthCheck from "./pages/HealthCheck";
-import NotFoundPage from "./pages/NotFoundPage";
 import Footer from "./components/Footer";
 
+// Loading fallback
 const LoadingFallback = () => (
-  <div className="flex items-center justify-center min-h-screen">
+  <div className="flex min-h-screen items-center justify-center">
     <div className="text-center">
-      <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto mb-4"></div>
+      <div className="mx-auto mb-4 h-32 w-32 animate-spin rounded-full border-b-2 border-primary" />
       <h2 className="text-xl font-semibold">Loading...</h2>
       <p className="text-muted-foreground">Please wait while the app initializes</p>
     </div>
@@ -43,19 +47,21 @@ function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col min-h-screen">
+      <div className="flex min-h-screen flex-col">
         <BrowserRouter>
           <Suspense fallback={<LoadingFallback />}>
             <div className="flex-1">
               <Routes>
-                {/* Public / Driver routes */}
+                {/* Public */}
                 <Route path="/" element={<HomePage />} />
                 <Route path="/driver-login" element={<DriverLoginPage />} />
                 <Route path="/driver-preferences" element={<DriverPreferencesPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-                <Route path="/security-questions" element={<SecurityQuestionsPage />} /> {/* ✅ NEW */}
 
-                {/* Admin routes */}
+                {/* Password reset flow (expects ?empId=1234567) */}
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/security-questions" element={<SecurityQuestionsPage />} />
+
+                {/* Admin */}
                 <Route path="/admin-portal" element={<AdminPortalPage />} />
                 <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
                 <Route path="/admin" element={<AdminDashboardPage />} />
@@ -70,8 +76,10 @@ function App() {
                 <Route path="/admin/system-settings" element={<SystemSettingsPage />} />
                 <Route path="/admin/master-admin" element={<MasterAdminPage />} />
 
-                {/* Health + 404 */}
+                {/* Utilities */}
                 <Route path="/health" element={<HealthCheck />} />
+
+                {/* 404 */}
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </div>
