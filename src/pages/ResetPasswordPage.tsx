@@ -1,70 +1,49 @@
+// src/pages/ResetPasswordPage.tsx
 import React from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const empId = params.get("empId");
 
-  // Be forgiving about the param name: support emplid, empId, employee_id
-  const rawEmpId =
-    params.get("emplid") ||
-    params.get("empId") ||
-    params.get("employee_id") ||
-    "";
-
-  const empId = (rawEmpId || "").trim();
-
-  const goNext = () => {
-    if (!empId) return;
-    // Always carry the employee id through to the next step
-    navigate(`/security-questions?emplid=${encodeURIComponent(empId)}`, {
-      replace: true,
-    });
+  const handleResetClick = () => {
+    if (empId) {
+      // ✅ Pass empId to security-questions route
+      navigate(`/security-questions?empId=${encodeURIComponent(empId)}`);
+    } else {
+      alert("No Employee ID in URL. Please return to login and try again.");
+    }
   };
 
-  const missingId = !empId;
-
   return (
-    <div className="container mx-auto max-w-3xl px-6 py-12">
-      <div className="rounded-xl border bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-2xl font-semibold">Reset Your Password</h1>
-
-        <p className="mb-6 text-muted-foreground">
+    <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <div className="bg-white shadow-md rounded-lg p-8 w-full max-w-md text-center">
+        <h1 className="text-2xl font-bold mb-4">Reset Your Password</h1>
+        <p className="text-gray-600 mb-6">
           Answer your security questions to reset your password.
         </p>
 
-        {missingId ? (
-          <div className="mb-6 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
-            No Employee ID in URL. Please return to login and start again.
+        {empId ? (
+          <div className="mb-4 p-2 text-sm bg-yellow-50 border border-yellow-200 rounded">
+            Employee ID detected: <span className="font-semibold">{empId}</span>
           </div>
         ) : (
-          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Employee ID detected: <span className="font-mono">{empId}</span>
+          <div className="mb-4 p-2 text-sm bg-red-50 border border-red-200 rounded text-red-700">
+            No Employee ID in URL. Please return to login and start again.
           </div>
         )}
 
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link
-            to="/driver-login"
-            className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+        <div className="flex justify-between">
+          <button
+            className="px-4 py-2 rounded bg-gray-100 hover:bg-gray-200"
+            onClick={() => navigate("/")}
           >
             Back to Login
-          </Link>
-
+          </button>
           <button
-            type="button"
-            onClick={goNext}
-            disabled={missingId}
-            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-white ${
-              missingId
-                ? "cursor-not-allowed bg-gray-400"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-            title={
-              missingId
-                ? "Employee ID not found in the URL"
-                : "Continue to security questions"
-            }
+            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+            onClick={handleResetClick}
           >
             Reset Password
           </button>
