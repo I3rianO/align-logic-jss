@@ -1,338 +1,386 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import MainLayout from '@/components/layout/MainLayout';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
-import useDriverStore from '@/store/driverStore';
-import {
-  ChevronDown,
-  ChevronUp,
-  Info,
-  Loader2,
-  LogOut,
-  Plus,
-  Save,
-  Trash2,
-  Plane,
-  ArrowUpDown,
-  ArrowDown,
-  ArrowUp,
-  Filter,
-  Printer
-} from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Slider } from '@/components/ui/slider';
-import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Job } from '@/store/driverStore';
-import { useIsMobile } from '@/hooks/use-mobile';
+// src/pages/DriverPreferencesPage.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
 
-// Supabase client
-import { supabase, signOutKiosk } from '@/lib/supabase';
-
-interface SortConfig {
-  key: keyof Job | '';
-  direction: 'asc' | 'desc';
-}
-
-interface FilterConfig {
-  startTimeRange: [number, number];
-  showAirport: boolean | null;
-  weekDays: string | null;
-  searchTerm: string;
-}
-
-const timeToMinutes = (timeStr: string): number => {
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  return hours * 60 + minutes;
+type Driver = {
+  id: string;
+  employee_id: string;
+  name?: string | null;
+  site_id?: string | null;
+  company_id?: string | null;
+  seniority?: number | null;
 };
 
-const minutesToTime = (minutes: number): string => {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+type Job = {
+  id: string;
+  job_id?: string | null; // in case your jobs table also stores a human id
+  title?: string | null;
+  start_time?: string | null;
+  days?: string | null;
+  location?: string | null;
+  airport?: boolean | null;
 };
 
-function DriverPreferencesPage() {
+type PickRow = {
+  driver_id: string;
+  job_id: string;
+  preference_rank: number;
+  submitted_at?: string | null;
+  site_id?: string | null;
+  company_id?: string | null;
+};
+
+function readEmpId(search: URLSearchParams): string | null {
+  // accept several spellings
+  const id =
+    search.get("empId") ||
+    search.get("emplid") ||
+    search.get("empid") ||
+    search.get("id") ||
+    sessionStorage.getItem("empId") ||
+    localStorage.getItem("empId") ||
+    "";
+  return id?.trim() ? id.trim() : null;
+}
+
+export default function DriverPreferencesPage() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { toast } = useToast();
-  const isMobileDevice = useIsMobile();
+  const [search] = useSearchParams();
 
-  const employeeId: string | undefined = location.state?.employeeId;
-  const authenticated: boolean | undefined = location.state?.authenticated;
-  const siteId: string | undefined = location.state?.siteId;
-  const siteName: string | undefined = location.state?.siteName;
-  const companyId: string | undefined = location.state?.companyId;
+  // ---- identity -------------------------------------------------------------
+  const driverId = useMemo(() => readEmpId(search), [search]);
+  const [driver, setDriver] = useState<Driver | null>(null);
 
+  // ---- data -----------------------------------------------------------------
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [picks, setPicks] = useState<string[]>([]); // array of job_id in order
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(
+    null
+  );
+
+  // ---- load driver, jobs, and existing picks --------------------------------
   useEffect(() => {
-    if (!employeeId) {
-      navigate('/');
-    } else if (!authenticated) {
-      navigate('/driver-login', { state: { employeeId } });
-    }
-  }, [employeeId, authenticated, navigate]);
-
-  const {
-    jobs,
-    submitPreferences,
-    getDriverPreferences,
-    isCutoffActive,
-    drivers,
-    systemSettings,
-    logDriverActivity
-  } = useDriverStore();
-
-  const driverInfo = drivers.find(d => d.employeeId === employeeId);
-
-  const hasStartedRef = React.useRef(false);
-  const [isCutoffReached, setIsCutoffReached] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (!hasStartedRef.current) setIsCutoffReached(isCutoffActive);
-    if (driverInfo) {
-      logDriverActivity({
-        driverId: employeeId || '',
-        driverName: driverInfo.name,
-        action: 'view',
-        details: 'Viewed job preferences page'
-      });
-    }
-  }, [isCutoffActive, employeeId, driverInfo, logDriverActivity]);
-
-  const storeExisting = getDriverPreferences(employeeId || '');
-  const [jobPreferences, setJobPreferences] = useState<string[]>(storeExisting || []);
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: 'asc' });
-  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
-  const [filterConfig, setFilterConfig] = useState<FilterConfig>({
-    startTimeRange: [0, 24 * 60 - 1],
-    showAirport: null,
-    weekDays: null,
-    searchTerm: ''
-  });
-
-  useEffect(() => {
-    if (jobPreferences.length > 0 && !storeExisting) {
-      hasStartedRef.current = true;
-    }
-  }, [jobPreferences, storeExisting]);
-
-  // ====== SUPABASE: LOAD DRIVER PICKS ======
-  useEffect(() => {
-    const loadPicks = async () => {
-      if (!employeeId) return;
-      const { data, error } = await supabase
-        .from('driver_picks')
-        .select('job_id, preference_rank')
-        .eq('driver_id', employeeId)
-        .order('preference_rank', { ascending: true });
-
-      if (error) {
-        console.error('Load picks error:', error);
+    (async () => {
+      if (!driverId) {
+        setLoading(false);
         return;
       }
-      if (data && data.length) {
-        setJobPreferences(data.map(r => r.job_id));
-        hasStartedRef.current = true;
-      }
-    };
-    loadPicks();
-  }, [employeeId]);
 
-  const handleSort = (key: keyof Job) => {
-    setSortConfig(prev =>
-      prev.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }
-    );
-  };
+      // persist for future steps (kiosk flow)
+      sessionStorage.setItem("empId", driverId);
+      localStorage.setItem("empId", driverId);
 
-  const sortAndFilterJobs = (jobsToSort: Job[]): Job[] => {
-    let result = [...jobsToSort];
-    if (siteId && companyId) {
-      result = result.filter(j => j.siteId === siteId && j.companyId === companyId);
-    } else if (driverInfo) {
-      result = result.filter(j => j.siteId === driverInfo.siteId && j.companyId === driverInfo.companyId);
-    }
-    if (driverInfo && !driverInfo.airportCertified) {
-      result = result.filter(j => !j.isAirport);
-    }
-    if (filterConfig.searchTerm.trim() !== '') {
-      const term = filterConfig.searchTerm.toLowerCase();
-      result = result.filter(
-        j =>
-          j.jobId.toLowerCase().includes(term) ||
-          j.startTime.toLowerCase().includes(term) ||
-          j.weekDays.toLowerCase().includes(term)
-      );
-    }
-    result = result.filter(j => {
-      const m = timeToMinutes(j.startTime);
-      return m >= filterConfig.startTimeRange[0] && m <= filterConfig.startTimeRange[1];
-    });
-    if (filterConfig.showAirport !== null) {
-      result = result.filter(j => j.isAirport === filterConfig.showAirport);
-    }
-    if (filterConfig.weekDays) {
-      result = result.filter(j => j.weekDays.includes(filterConfig.weekDays!));
-    }
-    if (sortConfig.key) {
-      result.sort((a, b) => {
-        if (sortConfig.key === 'startTime') {
-          const ta = timeToMinutes(a.startTime);
-          const tb = timeToMinutes(b.startTime);
-          return sortConfig.direction === 'asc' ? ta - tb : tb - ta;
+      try {
+        setLoading(true);
+
+        // 1) driver
+        const { data: drow, error: derr } = await supabase
+          .from("drivers")
+          .select("*")
+          .eq("employee_id", driverId)
+          .limit(1)
+          .maybeSingle();
+
+        if (derr) throw derr;
+        if (!drow) {
+          setToast({
+            type: "err",
+            msg: `We couldn't find a driver for ID ${driverId}.`,
+          });
+          setDriver(null);
+        } else {
+          setDriver({
+            id: drow.id,
+            employee_id: drow.employee_id,
+            name: drow.name ?? null,
+            site_id: drow.site_id ?? null,
+            company_id: drow.company_id ?? null,
+            seniority: drow.seniority ?? null,
+          });
         }
-        const ka = a[sortConfig.key] as any;
-        const kb = b[sortConfig.key] as any;
-        if (ka < kb) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (ka > kb) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-    return result;
-  };
 
-  const sortedJobs = sortAndFilterJobs(jobs);
-  const availableJobs = sortedJobs.filter(j => !jobPreferences.includes(j.jobId));
+        // 2) jobs (you can add filtering by site/company if desired)
+        const { data: jrows, error: jerr } = await supabase
+          .from("jobs")
+          .select("*")
+          .order("id", { ascending: true });
+        if (jerr) throw jerr;
+        setJobs(jrows ?? []);
 
-  const addJobPreference = (jobId: string) => setJobPreferences(prev => [...prev, jobId]);
-  const removeJobPreference = (index: number) => setJobPreferences(prev => prev.filter((_, i) => i !== index));
-  const moveJobUp = (index: number) => {
-    if (index === 0) return;
-    const next = [...jobPreferences];
-    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    setJobPreferences(next);
-  };
-  const moveJobDown = (index: number) => {
-    if (index === jobPreferences.length - 1) return;
-    const next = [...jobPreferences];
-    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    setJobPreferences(next);
-  };
+        // 3) existing picks for this driver
+        const { data: prow, error: perr } = await supabase
+          .from("driver_picks")
+          .select("job_id, preference_rank")
+          .eq("driver_id", driverId)
+          .order("preference_rank", { ascending: true });
 
-  // ====== SUPABASE: SAVE PICKS ======
-  const persistToSupabase = async (picks: string[]) => {
-    if (!employeeId) return;
-    const { error: delErr } = await supabase.from('driver_picks').delete().eq('driver_id', employeeId);
-    if (delErr) throw delErr;
+        if (perr) throw perr;
 
-    if (picks.length === 0) return;
-
-    const nowIso = new Date().toISOString();
-    const rows = picks.map((jobId, idx) => ({
-      driver_id: employeeId,
-      job_id: jobId,
-      preference_rank: idx + 1,
-      submitted_at: nowIso,
-      site_id: siteId ?? driverInfo?.siteId ?? null,
-      company_id: companyId ?? driverInfo?.companyId ?? null
-    }));
-
-    const { error: upErr } = await supabase.from('driver_picks').insert(rows);
-    if (upErr) throw upErr;
-  };
-
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
-    try {
-      await persistToSupabase(jobPreferences);
-      submitPreferences({
-        driverId: employeeId || '',
-        preferences: jobPreferences,
-        submissionTime: new Date().toISOString()
-      });
-      toast({
-        title: 'Preferences Saved',
-        description:
-          jobPreferences.length === 0
-            ? "You've saved an empty preference list."
-            : 'Your job preferences have been successfully submitted.'
-      });
-      if (driverInfo) {
-        logDriverActivity({
-          driverId: employeeId || '',
-          driverName: driverInfo.name,
-          action: 'save',
-          details: `Saved ${jobPreferences.length} picks`
-        });
+        setPicks((prow ?? []).map((r) => r.job_id));
+      } catch (e: any) {
+        console.error(e);
+        setToast({ type: "err", msg: e?.message ?? "Failed to load data." });
+      } finally {
+        setLoading(false);
       }
-      hasStartedRef.current = true;
-    } catch (err: any) {
-      console.error(err);
-      toast({
-        title: 'Save Failed',
-        description: 'We could not save your preferences. Please try again.',
-        variant: 'destructive'
+    })();
+  }, [driverId]);
+
+  // ---- UI helpers -----------------------------------------------------------
+  const availableJobs = useMemo(() => {
+    const picked = new Set(picks);
+    return jobs.filter((j) => j.id && !picked.has(j.id));
+  }, [jobs, picks]);
+
+  function addPick(jobId: string) {
+    if (picks.includes(jobId)) return;
+    setPicks((p) => [...p, jobId]);
+  }
+
+  function removePick(jobId: string) {
+    setPicks((p) => p.filter((id) => id !== jobId));
+  }
+
+  function move(jobId: string, dir: "up" | "down") {
+    setPicks((arr) => {
+      const i = arr.indexOf(jobId);
+      if (i < 0) return arr;
+      const j = dir === "up" ? i - 1 : i + 1;
+      if (j < 0 || j >= arr.length) return arr;
+      const copy = [...arr];
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+      return copy;
+    });
+  }
+
+  // ---- save -----------------------------------------------------------------
+  async function save() {
+    if (!driverId) {
+      alert("Missing driver ID. Please log in again.");
+      return;
+    }
+    try {
+      setSaving(true);
+
+      // Upsert the rows for this driver's picks with current preference order.
+      const upserts: PickRow[] = picks.map((jobId, idx) => ({
+        driver_id: driverId,
+        job_id,
+        preference_rank: idx + 1,
+        submitted_at: new Date().toISOString(),
+        site_id: driver?.site_id ?? null,
+        company_id: driver?.company_id ?? null,
+      }));
+
+      // 1) Upsert current set
+      if (upserts.length > 0) {
+        const { error: uerr } = await supabase
+          .from("driver_picks")
+          .upsert(upserts, {
+            onConflict: "driver_id,job_id",
+            ignoreDuplicates: false,
+          });
+        if (uerr) throw uerr;
+      }
+
+      // 2) Remove any previously-saved picks that have been dropped
+      // (delete where driver_id = ? and job_id NOT IN current picks)
+      const { error: derr } = await supabase
+        .from("driver_picks")
+        .delete()
+        .eq("driver_id", driverId)
+        .not("job_id", "in", `(${picks.map((id) => `"${id}"`).join(",") || ""})`);
+
+      // If there are zero picks, .not(... in '()') is invalid — do a full delete.
+      if (picks.length === 0) {
+        await supabase.from("driver_picks").delete().eq("driver_id", driverId);
+      } else if (derr && picks.length > 0) {
+        // ignore if the NOT IN clause was empty (handled above),
+        // but rethrow any other error
+        throw derr;
+      }
+
+      setToast({ type: "ok", msg: "Your preferences have been saved." });
+    } catch (e: any) {
+      console.error(e);
+      setToast({
+        type: "err",
+        msg: e?.message ?? "We could not save your preferences. Please try again.",
       });
     } finally {
-      setIsSubmitting(false);
+      setSaving(false);
     }
-  };
+  }
 
-  // ====== EXIT: SIGN OUT + RETURN TO HOME ======
-  const exitPage = async () => {
-    await signOutKiosk();         // clear in-memory Supabase session
-    navigate('/');                // force return to homepage
-    window.location.reload();     // ensure full reset of kiosk session
-  };
-
-  const resetFilters = () =>
-    setFilterConfig({
-      startTimeRange: [0, 24 * 60 - 1],
-      showAirport: null,
-      weekDays: null,
-      searchTerm: ''
-    });
-
-  const weekDayOptions = [...new Set(jobs.map(j => j.weekDays))];
-
-  const getActiveFilterCount = () => {
-    let count = 0;
-    if (filterConfig.startTimeRange[0] > 0 || filterConfig.startTimeRange[1] < 24 * 60 - 1) count++;
-    if (filterConfig.showAirport !== null) count++;
-    if (filterConfig.weekDays !== null) count++;
-    if (filterConfig.searchTerm.trim() !== '') count++;
-    return count;
-  };
-
-  const printJobPreferences = () => {
-    // … unchanged …
-  };
-
-  // … rest of your render code stays the same …
+  // ---- render ---------------------------------------------------------------
+  if (!driverId) {
+    return (
+      <div className="mx-auto max-w-2xl p-6">
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-900">
+          Missing driver ID. Please return to the login page.
+        </div>
+        <div className="mt-4">
+          <button
+            className="rounded-md border px-4 py-2"
+            onClick={() => navigate("/")}
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <MainLayout title="Job Preferences">
-      {/* ... */}
-      <CardFooter className="flex justify-between flex-wrap gap-2">
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exitPage}>
-            <LogOut size={18} className="mr-1" /> Exit
-          </Button>
-          {systemSettings.allowDriverPrinting && (
-            <Button variant="outline" onClick={printJobPreferences}>
-              <Printer size={18} className="mr-1" /> Print
-            </Button>
-          )}
+    <div className="mx-auto max-w-5xl p-6">
+      {/* Top driver information bar (kept minimal to avoid breaking your styling) */}
+      <div className="mb-5 rounded-lg border bg-white p-4 shadow-sm">
+        <div className="text-sm text-gray-600">Driver Information</div>
+        <div className="mt-1 text-lg font-medium">
+          {driver?.name || "Driver"} &nbsp;|&nbsp; Employee ID: {driverId}
         </div>
-        <Button onClick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? (
-            <>
-              <Loader2 size={18} className="mr-1 animate-spin" /> Submitting...
-            </>
-          ) : (
-            <>
-              <Save size={18} className="mr-1" /> Save Preferences
-            </>
-          )}
-        </Button>
-      </CardFooter>
-      {/* ... */}
-    </MainLayout>
+      </div>
+
+      {toast && (
+        <div
+          className={`mb-4 rounded-md border p-3 ${
+            toast.type === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-rose-200 bg-rose-50 text-rose-900"
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="rounded-md border bg-white p-6 shadow-sm">Loading…</div>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Available jobs */}
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="mb-3 text-base font-semibold">Available Jobs</div>
+            {availableJobs.length === 0 ? (
+              <div className="text-sm text-gray-500">No jobs to add.</div>
+            ) : (
+              <ul className="space-y-2">
+                {availableJobs.map((job) => (
+                  <li
+                    key={job.id}
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {job.title || job.job_id || job.id}
+                      </div>
+                      <div className="truncate text-xs text-gray-500">
+                        {job.start_time ? `${job.start_time} • ` : ""}
+                        {job.days || ""}
+                        {job.location ? ` • ${job.location}` : ""}
+                        {job.airport ? " • Airport" : ""}
+                      </div>
+                    </div>
+                    <button
+                      className="ml-3 rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
+                      onClick={() => addPick(job.id)}
+                    >
+                      Add
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Your picks */}
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="mb-3 text-base font-semibold">Your Job Preferences</div>
+
+            {picks.length === 0 ? (
+              <div className="text-sm text-gray-500">
+                You haven’t selected any jobs yet.
+              </div>
+            ) : (
+              <ol className="space-y-2">
+                {picks.map((jobId, idx) => {
+                  const job = jobs.find((j) => j.id === jobId);
+                  return (
+                    <li
+                      key={jobId}
+                      className="flex items-center justify-between rounded-md border px-3 py-2"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-100 text-sm font-semibold">
+                          {idx + 1}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">
+                            {job?.title || job?.job_id || jobId}
+                          </div>
+                          <div className="truncate text-xs text-gray-500">
+                            {job?.start_time ? `${job.start_time} • ` : ""}
+                            {job?.days || ""}
+                            {job?.location ? ` • ${job.location}` : ""}
+                            {job?.airport ? " • Airport" : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+                          onClick={() => move(jobId, "up")}
+                          disabled={idx === 0}
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+                          onClick={() => move(jobId, "down")}
+                          disabled={idx === picks.length - 1}
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50"
+                          onClick={() => removePick(jobId)}
+                          title="Remove"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={save}
+                disabled={saving}
+                className={`rounded-md px-4 py-2 text-white ${
+                  saving
+                    ? "cursor-not-allowed bg-indigo-300"
+                    : "bg-indigo-600 hover:bg-indigo-700"
+                }`}
+              >
+                {saving ? "Saving…" : "Save Preferences"}
+              </button>
+              <button
+                className="rounded-md border px-4 py-2"
+                onClick={() => navigate("/")}
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
-
-export default DriverPreferencesPage;
