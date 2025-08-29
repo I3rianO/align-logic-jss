@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { toast } from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+
+/**
+ * Simple, dependency-free kiosk login flow:
+ * 1) Enter employee ID
+ * 2) If password exists => ask for password; else => create password
+ * 3) Route to /driver-preferences?emplid=...
+ *
+ * No localStorage/session is persisted: exiting leaves the kiosk ready for the next driver.
+ */
 
 type DriverRow = {
   employee_id: string;
@@ -16,7 +24,7 @@ export default function DriverLoginPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
 
-  // ----- Local UI state -----
+  // ----- UI state -----
   const [phase, setPhase] = useState<Phase>("ID");
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +35,13 @@ export default function DriverLoginPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // If the page is reached with ?emplid=… we prefill the ID
+  // Small inline message bar (no external toast lib)
+  const [msg, setMsg] = useState<{ type: "info" | "error" | "success"; text: string } | null>(null);
+  const showError = (text: string) => setMsg({ type: "error", text });
+  const showInfo = (text: string) => setMsg({ type: "info", text });
+  const showSuccess = (text: string) => setMsg({ type: "success", text });
+
+  // Prefill ID if provided in query (?emplid=...)
   useEffect(() => {
     const qId =
       search.get("emplid") ||
@@ -38,7 +52,7 @@ export default function DriverLoginPage() {
     if (qId) setEmployeeIdInput(qId);
   }, [search]);
 
-  // Clean-ish heading/subtitle copy per phase
+  // Headings
   const heading = useMemo(() => {
     if (phase === "ID") return "Driver Login";
     if (phase === "LOGIN") return "Enter Your Password";
@@ -53,7 +67,7 @@ export default function DriverLoginPage() {
     return "Create a password to access the job selection system.";
   }, [phase]);
 
-  // ---- Helpers -------------------------------------------------------------
+  // ----- Helpers -----
 
   const resetAll = () => {
     setLoading(false);
@@ -61,11 +75,13 @@ export default function DriverLoginPage() {
     setPassword("");
     setNewPassword("");
     setConfirmPassword("");
+    setMsg(null);
     setPhase("ID");
   };
 
   const fetchDriver = async (empId: string) => {
     setLoading(true);
+    setMsg(null);
     try {
       const { data, error } = await supabase
         .from("drivers")
@@ -75,13 +91,13 @@ export default function DriverLoginPage() {
 
       if (error) throw error;
       if (!data) {
-        toast.error("Employee ID not found.");
+        showError("Employee ID not found.");
         return null;
       }
       return data as DriverRow;
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      toast.error("Could not look up that employee.");
+      showError("Could not look up that employee.");
       return null;
     } finally {
       setLoading(false);
@@ -89,30 +105,28 @@ export default function DriverLoginPage() {
   };
 
   const checkHasPassword = async (empId: string) => {
-    // calls public.has_driver_password(text) returns boolean
     const { data, error } = await supabase.rpc("has_driver_password", {
       p_employee_id: empId,
     });
     if (error) {
       console.error(error);
-      // Fail safe: treat as has password so we don’t accidentally expose setup to the wrong person
+      // Fail-safe: treat as has password
       return true;
     }
     return Boolean(data);
   };
 
   const goToPreferences = (empId: string) => {
-    // Only pass the employee id via URL (no persisted session)
     navigate(`/driver-preferences?emplid=${encodeURIComponent(empId)}`);
   };
 
-  // ---- Actions -------------------------------------------------------------
+  // ----- Actions -----
 
   const onSubmitEmployeeId = async (e: React.FormEvent) => {
     e.preventDefault();
     const empId = employeeIdInput.trim();
     if (!empId) {
-      toast.error("Please enter your employee ID.");
+      showError("Please enter your employee ID.");
       return;
     }
 
@@ -123,36 +137,37 @@ export default function DriverLoginPage() {
 
     const hasPw = await checkHasPassword(empId);
     setPhase(hasPw ? "LOGIN" : "CREATE");
+    showInfo(hasPw ? "Password on file. Please login." : "No password on file. Please create one.");
   };
 
   const onSubmitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!driver) return;
-    const empId = driver.employee_id;
 
     if (!password) {
-      toast.error("Please enter your password.");
+      showError("Please enter your password.");
       return;
     }
 
     setLoading(true);
+    setMsg(null);
     try {
       const { data, error } = await supabase.rpc("verify_driver_password", {
-        p_employee_id: empId,
+        p_employee_id: driver.employee_id,
         p_plain: password,
       });
 
       if (error) throw error;
 
       if (data === true) {
-        toast.success("Welcome!");
-        goToPreferences(empId);
+        showSuccess("Welcome!");
+        goToPreferences(driver.employee_id);
       } else {
-        toast.error("Incorrect password. Please try again.");
+        showError("Incorrect password. Please try again.");
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      toast.error("Could not verify your password.");
+      showError("Could not verify your password.");
     } finally {
       setLoading(false);
     }
@@ -163,21 +178,20 @@ export default function DriverLoginPage() {
     if (!driver) return;
 
     if (!newPassword || !confirmPassword) {
-      toast.error("Please fill out both password fields.");
+      showError("Please fill out both password fields.");
       return;
     }
     if (newPassword !== confirmPassword) {
-      toast.error("Passwords do not match.");
+      showError("Passwords do not match.");
       return;
     }
-
-    // Simple minimum — you can harden this as needed
     if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters.");
+      showError("Password must be at least 6 characters.");
       return;
     }
 
     setLoading(true);
+    setMsg(null);
     try {
       const { error } = await supabase.rpc("set_driver_password", {
         p_employee_id: driver.employee_id,
@@ -185,22 +199,36 @@ export default function DriverLoginPage() {
       });
       if (error) throw error;
 
-      toast.success("Password created. You’re in!");
+      showSuccess("Password created.");
       goToPreferences(driver.employee_id);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      toast.error("Could not set your password. Please try again.");
+      showError("Could not set your password. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ---- Renders -------------------------------------------------------------
+  // ----- UI -----
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
       <h1 className="text-2xl font-semibold mb-2">{heading}</h1>
       <p className="text-sm text-slate-600 mb-6">{subheading}</p>
+
+      {msg && (
+        <div
+          className={`mb-5 rounded border px-3 py-2 text-sm ${
+            msg.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : msg.type === "success"
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-amber-200 bg-amber-50 text-amber-700"
+          }`}
+        >
+          {msg.text}
+        </div>
+      )}
 
       {/* Phase: Enter ID */}
       {phase === "ID" && (
