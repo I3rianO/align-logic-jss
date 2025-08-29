@@ -1,394 +1,316 @@
+// src/pages/DriverLoginPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 
 /**
- * Simple, dependency-free kiosk login flow:
- * 1) Enter employee ID
- * 2) If password exists => ask for password; else => create password
- * 3) Route to /driver-preferences?emplid=...
- *
- * No localStorage/session is persisted: exiting leaves the kiosk ready for the next driver.
+ * DriverLoginPage
+ * - Step 1: Ask for Employee ID if not provided
+ * - Step 2: If Employee ID present, fetch driver info and show password entry
+ * - On success, redirect to Driver Preferences with emplid pinned in the URL
+ * - Shows a green success banner when redirected with ?reset=ok
  */
-
-type DriverRow = {
-  employee_id: string;
-  name: string | null;
-  site_id: string | null;
-  company_id: string | null;
-};
-
-type Phase = "ID" | "LOGIN" | "CREATE";
-
 export default function DriverLoginPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
 
-  // ----- UI state -----
-  const [phase, setPhase] = useState<Phase>("ID");
-  const [loading, setLoading] = useState(false);
-
-  const [employeeIdInput, setEmployeeIdInput] = useState("");
-  const [driver, setDriver] = useState<DriverRow | null>(null);
-
-  const [password, setPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-
-  // Small inline message bar (no external toast lib)
-  const [msg, setMsg] = useState<{ type: "info" | "error" | "success"; text: string } | null>(null);
-  const showError = (text: string) => setMsg({ type: "error", text });
-  const showInfo = (text: string) => setMsg({ type: "info", text });
-  const showSuccess = (text: string) => setMsg({ type: "success", text });
-
-  // Prefill ID if provided in query (?emplid=...)
-  useEffect(() => {
-    const qId =
+  // Accept several possible spellings just in case
+  const paramId = useMemo(() => {
+    return (
       search.get("emplid") ||
-      search.get("empId") ||
-      search.get("employee_id") ||
+      search.get("emplid#") ||
+      search.get("empid") ||
       search.get("id") ||
-      "";
-    if (qId) setEmployeeIdInput(qId);
+      ""
+    ).trim();
   }, [search]);
 
-  // Headings
-  const heading = useMemo(() => {
-    if (phase === "ID") return "Driver Login";
-    if (phase === "LOGIN") return "Enter Your Password";
-    return "Set Up Your Password";
-  }, [phase]);
+  const [employeeId, setEmployeeId] = useState<string>(paramId);
+  const [driverName, setDriverName] = useState<string>("");
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [password, setPassword] = useState("");
 
-  const subheading = useMemo(() => {
-    if (phase === "ID")
-      return "Enter your employee ID to access the job selection system.";
-    if (phase === "LOGIN")
-      return "Please enter your password to continue.";
-    return "Create a password to access the job selection system.";
-  }, [phase]);
+  // 👇 NEW: success banner when coming back from reset flow
+  const resetOk = search.get("reset") === "ok";
 
-  // ----- Helpers -----
+  /**
+   * When we have an employeeId, look up the driver and whether a password exists.
+   * - public.drivers is assumed to contain (employee_id, name, company_id, site_id, ...)
+   * - public.has_driver_password(p_employee_id text) returns boolean
+   */
+  useEffect(() => {
+    if (!employeeId) return;
+    let cancelled = false;
 
-  const resetAll = () => {
-    setLoading(false);
-    setDriver(null);
-    setPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setMsg(null);
-    setPhase("ID");
-  };
+    (async () => {
+      setLoading(true);
+      try {
+        // Fetch driver display info (name); no auth required (RLS read-only)
+        const { data: driverRow, error: dErr } = await supabase
+          .from("drivers")
+          .select("name")
+          .eq("employee_id", employeeId)
+          .maybeSingle();
 
-  const fetchDriver = async (empId: string) => {
-    setLoading(true);
-    setMsg(null);
-    try {
-      const { data, error } = await supabase
-        .from("drivers")
-        .select("employee_id,name,site_id,company_id")
-        .eq("employee_id", empId.trim())
-        .maybeSingle();
+        if (dErr) throw dErr;
 
-      if (error) throw error;
-      if (!data) {
-        showError("Employee ID not found.");
-        return null;
+        if (!driverRow) {
+          if (!cancelled) {
+            setDriverName("");
+            setHasPassword(null);
+            toast.error("Employee ID not found.");
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setDriverName(driverRow.name || "");
+        }
+
+        // Ask SQL helper: do we already have a password row?
+        const { data: hasRow, error: hErr } = await supabase.rpc(
+          "has_driver_password",
+          { p_employee_id: employeeId }
+        );
+
+        if (hErr) throw hErr;
+
+        if (!cancelled) {
+          setHasPassword(Boolean(hasRow));
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          console.error(e);
+          toast.error("Unable to load driver information.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      return data as DriverRow;
-    } catch (err) {
-      console.error(err);
-      showError("Could not look up that employee.");
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
 
-  const checkHasPassword = async (empId: string) => {
-    const { data, error } = await supabase.rpc("has_driver_password", {
-      p_employee_id: empId,
-    });
-    if (error) {
-      console.error(error);
-      // Fail-safe: treat as has password
-      return true;
-    }
-    return Boolean(data);
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId]);
 
-  const goToPreferences = (empId: string) => {
-    navigate(`/driver-preferences?emplid=${encodeURIComponent(empId)}`);
-  };
-
-  // ----- Actions -----
-
-  const onSubmitEmployeeId = async (e: React.FormEvent) => {
+  /**
+   * Step 1 submit: ensure employeeId is present and push stateful URL
+   */
+  function handleIdSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const empId = employeeIdInput.trim();
-    if (!empId) {
-      showError("Please enter your employee ID.");
+    const id = employeeId.trim();
+    if (!id) {
+      toast.error("Please enter your Employee ID.");
       return;
     }
+    // Reflect ID in the URL (so refresh keeps state)
+    navigate(`/driver-login?emplid=${encodeURIComponent(id)}`);
+  }
 
-    const d = await fetchDriver(empId);
-    if (!d) return;
-
-    setDriver(d);
-
-    const hasPw = await checkHasPassword(empId);
-    setPhase(hasPw ? "LOGIN" : "CREATE");
-    showInfo(hasPw ? "Password on file. Please login." : "No password on file. Please create one.");
-  };
-
-  const onSubmitPassword = async (e: React.FormEvent) => {
+  /**
+   * Login submit: verify password via SQL function verify_driver_password
+   */
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (!driver) return;
-
+    if (!employeeId) return;
     if (!password) {
-      showError("Please enter your password.");
+      toast.error("Please enter your password.");
       return;
     }
-
     setLoading(true);
-    setMsg(null);
     try {
-      const { data, error } = await supabase.rpc("verify_driver_password", {
-        p_employee_id: driver.employee_id,
+      const { data: ok, error } = await supabase.rpc("verify_driver_password", {
+        p_employee_id: employeeId,
         p_plain: password,
       });
 
       if (error) throw error;
 
-      if (data === true) {
-        showSuccess("Welcome!");
-        goToPreferences(driver.employee_id);
+      if (ok === true) {
+        // Go to preferences and carry employee id in the URL
+        navigate(`/driver-preferences?emplid=${encodeURIComponent(employeeId)}`);
       } else {
-        showError("Incorrect password. Please try again.");
+        toast.error("Invalid password. Please try again.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showError("Could not verify your password.");
+      toast.error("Login failed. Please try again.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const onSubmitCreatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!driver) return;
+  /**
+   * Simple shells/sections
+   */
+  function PageShell({ children }: { children: React.ReactNode }) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <div className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold text-slate-900">Driver Login</h1>
+          <p className="mt-1 text-slate-600">
+            Enter your employee ID to access the job selection system.
+          </p>
 
-    if (!newPassword || !confirmPassword) {
-      showError("Please fill out both password fields.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      showError("Passwords do not match.");
-      return;
-    }
-    if (newPassword.length < 6) {
-      showError("Password must be at least 6 characters.");
-      return;
-    }
+          {/* Success banner from reset */}
+          {resetOk && (
+            <div className="mt-4 rounded-md border p-3 bg-green-50 border-green-200 text-green-700 text-sm">
+              Your password was updated. Please login.
+            </div>
+          )}
 
-    setLoading(true);
-    setMsg(null);
-    try {
-      const { error } = await supabase.rpc("set_driver_password", {
-        p_employee_id: driver.employee_id,
-        p_plain: newPassword,
-      });
-      if (error) throw error;
-
-      showSuccess("Password created.");
-      goToPreferences(driver.employee_id);
-    } catch (err) {
-      console.error(err);
-      showError("Could not set your password. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ----- UI -----
-
-  return (
-    <div className="mx-auto max-w-xl px-4 py-10">
-      <h1 className="text-2xl font-semibold mb-2">{heading}</h1>
-      <p className="text-sm text-slate-600 mb-6">{subheading}</p>
-
-      {msg && (
-        <div
-          className={`mb-5 rounded border px-3 py-2 text-sm ${
-            msg.type === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : msg.type === "success"
-              ? "border-green-200 bg-green-50 text-green-700"
-              : "border-amber-200 bg-amber-50 text-amber-700"
-          }`}
-        >
-          {msg.text}
-        </div>
-      )}
-
-      {/* Phase: Enter ID */}
-      {phase === "ID" && (
-        <form onSubmit={onSubmitEmployeeId} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Employee ID
-            </label>
-            <input
-              className="w-full rounded border px-3 py-2"
-              value={employeeIdInput}
-              onChange={(e) => setEmployeeIdInput(e.target.value)}
-              inputMode="numeric"
-              autoFocus
-              placeholder="e.g., 1234567"
-            />
+          <div className="mt-6 rounded-lg border bg-white p-6 shadow-sm">
+            {children}
           </div>
-          <div className="flex gap-3">
+        </div>
+      </div>
+    );
+  }
+
+  /**
+   * Step 1: Ask for employee ID
+   */
+  if (!employeeId) {
+    return (
+      <PageShell>
+        <form onSubmit={handleIdSubmit} className="space-y-4">
+          <label className="block text-sm font-medium text-slate-700">
+            Employee ID
+          </label>
+          <input
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+            className="w-full rounded-md border px-3 py-2 outline-none ring-blue-500 focus:ring"
+            placeholder="e.g., 1234567"
+            inputMode="numeric"
+          />
+
+          <div className="flex items-center gap-2">
             <button
               type="submit"
-              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
               disabled={loading}
             >
-              {loading ? "Checking…" : "Continue"}
+              {loading ? "Checking..." : "Continue"}
             </button>
             <button
               type="button"
-              className="rounded border px-4 py-2 hover:bg-slate-50"
-              onClick={resetAll}
+              onClick={() => setEmployeeId("")}
+              className="rounded-md border px-3 py-2 text-slate-700 hover:bg-slate-50"
             >
               Clear
             </button>
           </div>
         </form>
-      )}
+      </PageShell>
+    );
+  }
 
-      {/* Phase: Password Login */}
-      {phase === "LOGIN" && driver && (
-        <form onSubmit={onSubmitPassword} className="space-y-5">
-          <div className="rounded border p-3 bg-slate-50 text-sm">
+  /**
+   * Step 2: We have an employee ID. Show password login if we found the driver.
+   */
+  return (
+    <PageShell>
+      {loading && hasPassword === null ? (
+        <div className="text-slate-500">Loading driver info…</div>
+      ) : hasPassword === null ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
+          We couldn’t find that Employee ID.{" "}
+          <Link to="/driver-login" className="underline">
+            Try again
+          </Link>
+          .
+        </div>
+      ) : (
+        <>
+          {/* Driver box */}
+          <div className="mb-4 rounded-md border bg-slate-50 p-3 text-sm text-slate-800">
             <div className="flex items-center justify-between">
               <div>
-                <div className="font-medium">{driver.name ?? "Driver"}</div>
-                <div className="text-slate-600">ID: {driver.employee_id}</div>
+                <div className="font-medium">{driverName || "Driver"}</div>
+                <div className="text-slate-600">ID: {employeeId}</div>
               </div>
-              <button
-                type="button"
-                className="rounded border px-3 py-1 text-sm hover:bg-slate-100"
-                onClick={resetAll}
+
+              {/* If they typed the wrong ID, let them go back */}
+              <Link
+                to="/driver-login"
+                className="rounded-md border px-3 py-1.5 text-sm text-slate-700 hover:bg-white"
               >
                 Not you? New driver
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Password</label>
-            <input
-              className="w-full rounded border px-3 py-2"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-              placeholder="Enter your password"
-            />
-            <div className="mt-2">
-              <Link
-                to={`/reset-password?emplid=${encodeURIComponent(
-                  driver.employee_id
-                )}`}
-                className="text-sm text-blue-600 hover:underline"
-              >
-                Forgot password?
               </Link>
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <button
-              type="button"
-              className="rounded border px-4 py-2 hover:bg-slate-50"
-              onClick={resetAll}
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-              disabled={loading}
-            >
-              {loading ? "Verifying…" : "Login"}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Phase: Create Password */}
-      {phase === "CREATE" && driver && (
-        <form onSubmit={onSubmitCreatePassword} className="space-y-5">
-          <div className="rounded border p-3 bg-slate-50 text-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">{driver.name ?? "Driver"}</div>
-                <div className="text-slate-600">ID: {driver.employee_id}</div>
+          {hasPassword ? (
+            // Existing driver: enter password
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm">
+                Password on file. Please login.
               </div>
-              <button
-                type="button"
-                className="rounded border px-3 py-1 text-sm hover:bg-slate-100"
-                onClick={resetAll}
-              >
-                Not you? New driver
-              </button>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 outline-none ring-blue-500 focus:ring"
+                placeholder="Enter your password"
+                autoComplete="current-password"
+              />
+
+              <div className="flex items-center justify-between">
+                <Link
+                  to={`/reset-password?emplid=${encodeURIComponent(employeeId)}`}
+                  className="text-sm text-blue-700 hover:underline"
+                >
+                  Forgot password?
+                </Link>
+
+                <div className="flex gap-2">
+                  <Link
+                    to="/driver-login"
+                    className="rounded-md border px-3 py-2 text-slate-700 hover:bg-slate-50"
+                  >
+                    Back
+                  </Link>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+                    disabled={loading}
+                  >
+                    {loading ? "Logging in…" : "Login"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : (
+            // New driver: help them set a password
+            <div className="space-y-3">
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-blue-800 text-sm">
+                We don’t have a password on file for this driver yet.
+              </div>
+              <div className="flex gap-2">
+                <Link
+                  to={`/set-new-password?emplid=${encodeURIComponent(employeeId)}`}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                >
+                  Set Up Password
+                </Link>
+                <Link
+                  to="/driver-login"
+                  className="rounded-md border px-3 py-2 text-slate-700 hover:bg-slate-50"
+                >
+                  Back
+                </Link>
+              </div>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              New Password
-            </label>
-            <input
-              className="w-full rounded border px-3 py-2"
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoFocus
-              placeholder="Enter a new password"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Confirm Password
-            </label>
-            <input
-              className="w-full rounded border px-3 py-2"
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter the same password"
-            />
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              className="rounded border px-4 py-2 hover:bg-slate-50"
-              onClick={() => setPhase("LOGIN")}
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
-              disabled={loading}
-            >
-              {loading ? "Saving…" : "Create Password"}
-            </button>
-          </div>
-        </form>
+          )}
+        </>
       )}
-    </div>
+    </PageShell>
   );
 }
