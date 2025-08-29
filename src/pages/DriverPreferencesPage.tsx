@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 
+// -- Types --------------------------------------------------------------------
+
 type Driver = {
   id: string;
   employee_id: string;
@@ -14,7 +16,7 @@ type Driver = {
 
 type Job = {
   id: string;
-  job_id?: string | null; // in case your jobs table also stores a human id
+  job_id?: string | null; // optional human-friendly id
   title?: string | null;
   start_time?: string | null;
   days?: string | null;
@@ -22,18 +24,11 @@ type Job = {
   airport?: boolean | null;
 };
 
-type PickRow = {
-  driver_id: string;
-  job_id: string;
-  preference_rank: number;
-  submitted_at?: string | null;
-  site_id?: string | null;
-  company_id?: string | null;
-};
+// -- Helpers ------------------------------------------------------------------
 
 function readEmpId(search: URLSearchParams): string | null {
-  // accept several spellings
-  const id =
+  // Accept several spellings + kiosk memory.
+  const v =
     search.get("empId") ||
     search.get("emplid") ||
     search.get("empid") ||
@@ -41,57 +36,52 @@ function readEmpId(search: URLSearchParams): string | null {
     sessionStorage.getItem("empId") ||
     localStorage.getItem("empId") ||
     "";
-  return id?.trim() ? id.trim() : null;
+  return v.trim() ? v.trim() : null;
 }
+
+// -- Page ---------------------------------------------------------------------
 
 export default function DriverPreferencesPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
 
-  // ---- identity -------------------------------------------------------------
-  const driverId = useMemo(() => readEmpId(search), [search]);
+  // Identity
+  const employeeId = useMemo(() => readEmpId(search), [search]);
   const [driver, setDriver] = useState<Driver | null>(null);
 
-  // ---- data -----------------------------------------------------------------
+  // Data
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [picks, setPicks] = useState<string[]>([]); // array of job_id in order
+  const [picks, setPicks] = useState<string[]>([]); // ordered list of job ids
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(
     null
   );
 
-  // ---- load driver, jobs, and existing picks --------------------------------
+  // Load driver, jobs, and existing preferences
   useEffect(() => {
     (async () => {
-      if (!driverId) {
+      if (!employeeId) {
         setLoading(false);
         return;
       }
 
-      // persist for future steps (kiosk flow)
-      sessionStorage.setItem("empId", driverId);
-      localStorage.setItem("empId", driverId);
+      // Persist for kiosk/back-nav convenience
+      sessionStorage.setItem("empId", employeeId);
+      localStorage.setItem("empId", employeeId);
 
       try {
         setLoading(true);
 
-        // 1) driver
+        // 1) Driver info (for header)
         const { data: drow, error: derr } = await supabase
           .from("drivers")
           .select("*")
-          .eq("employee_id", driverId)
+          .eq("employee_id", employeeId)
           .limit(1)
           .maybeSingle();
-
         if (derr) throw derr;
-        if (!drow) {
-          setToast({
-            type: "err",
-            msg: `We couldn't find a driver for ID ${driverId}.`,
-          });
-          setDriver(null);
-        } else {
+        if (drow) {
           setDriver({
             id: drow.id,
             employee_id: drow.employee_id,
@@ -100,9 +90,15 @@ export default function DriverPreferencesPage() {
             company_id: drow.company_id ?? null,
             seniority: drow.seniority ?? null,
           });
+        } else {
+          setDriver(null);
+          setToast({
+            type: "err",
+            msg: `We couldn't find a driver for ID ${employeeId}.`,
+          });
         }
 
-        // 2) jobs (you can add filtering by site/company if desired)
+        // 2) Jobs (you can filter by site/company if desired)
         const { data: jrows, error: jerr } = await supabase
           .from("jobs")
           .select("*")
@@ -110,16 +106,17 @@ export default function DriverPreferencesPage() {
         if (jerr) throw jerr;
         setJobs(jrows ?? []);
 
-        // 3) existing picks for this driver
+        // 3) Existing preferences from driver_preferences (jsonb array)
         const { data: prow, error: perr } = await supabase
-          .from("driver_picks")
-          .select("job_id, preference_rank")
-          .eq("driver_id", driverId)
-          .order("preference_rank", { ascending: true });
-
+          .from("driver_preferences")
+          .select("prefs")
+          .eq("employee_id", employeeId)
+          .limit(1)
+          .maybeSingle();
         if (perr) throw perr;
 
-        setPicks((prow ?? []).map((r) => r.job_id));
+        const saved = (prow?.prefs as string[] | null) ?? [];
+        setPicks(saved);
       } catch (e: any) {
         console.error(e);
         setToast({ type: "err", msg: e?.message ?? "Failed to load data." });
@@ -127,23 +124,22 @@ export default function DriverPreferencesPage() {
         setLoading(false);
       }
     })();
-  }, [driverId]);
+  }, [employeeId]);
 
-  // ---- UI helpers -----------------------------------------------------------
+  // Derived
   const availableJobs = useMemo(() => {
     const picked = new Set(picks);
     return jobs.filter((j) => j.id && !picked.has(j.id));
   }, [jobs, picks]);
 
+  // UI actions
   function addPick(jobId: string) {
-    if (picks.includes(jobId)) return;
+    if (!jobId || picks.includes(jobId)) return;
     setPicks((p) => [...p, jobId]);
   }
-
   function removePick(jobId: string) {
     setPicks((p) => p.filter((id) => id !== jobId));
   }
-
   function move(jobId: string, dir: "up" | "down") {
     setPicks((arr) => {
       const i = arr.indexOf(jobId);
@@ -156,67 +152,44 @@ export default function DriverPreferencesPage() {
     });
   }
 
-  // ---- save -----------------------------------------------------------------
+  // Save -> upsert single row in driver_preferences
   async function save() {
-    if (!driverId) {
+    if (!employeeId) {
       alert("Missing driver ID. Please log in again.");
       return;
     }
     try {
       setSaving(true);
 
-      // Upsert the rows for this driver's picks with current preference order.
-      const upserts: PickRow[] = picks.map((jobId, idx) => ({
-        driver_id: driverId,
-        job_id,
-        preference_rank: idx + 1,
-        submitted_at: new Date().toISOString(),
-        site_id: driver?.site_id ?? null,
-        company_id: driver?.company_id ?? null,
-      }));
+      const payload = {
+        employee_id: employeeId,
+        prefs: picks, // jsonb array
+        updated_at: new Date().toISOString(),
+      };
 
-      // 1) Upsert current set
-      if (upserts.length > 0) {
-        const { error: uerr } = await supabase
-          .from("driver_picks")
-          .upsert(upserts, {
-            onConflict: "driver_id,job_id",
-            ignoreDuplicates: false,
-          });
-        if (uerr) throw uerr;
-      }
+      // onConflict: employee_id (primary key per your step 2b)
+      const { error } = await supabase
+        .from("driver_preferences")
+        .upsert(payload, { onConflict: "employee_id" });
 
-      // 2) Remove any previously-saved picks that have been dropped
-      // (delete where driver_id = ? and job_id NOT IN current picks)
-      const { error: derr } = await supabase
-        .from("driver_picks")
-        .delete()
-        .eq("driver_id", driverId)
-        .not("job_id", "in", `(${picks.map((id) => `"${id}"`).join(",") || ""})`);
-
-      // If there are zero picks, .not(... in '()') is invalid — do a full delete.
-      if (picks.length === 0) {
-        await supabase.from("driver_picks").delete().eq("driver_id", driverId);
-      } else if (derr && picks.length > 0) {
-        // ignore if the NOT IN clause was empty (handled above),
-        // but rethrow any other error
-        throw derr;
-      }
+      if (error) throw error;
 
       setToast({ type: "ok", msg: "Your preferences have been saved." });
     } catch (e: any) {
       console.error(e);
       setToast({
         type: "err",
-        msg: e?.message ?? "We could not save your preferences. Please try again.",
+        msg:
+          e?.message ??
+          "We could not save your preferences. Please try again.",
       });
     } finally {
       setSaving(false);
     }
   }
 
-  // ---- render ---------------------------------------------------------------
-  if (!driverId) {
+  // Render
+  if (!employeeId) {
     return (
       <div className="mx-auto max-w-2xl p-6">
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-900">
@@ -236,11 +209,11 @@ export default function DriverPreferencesPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
-      {/* Top driver information bar (kept minimal to avoid breaking your styling) */}
+      {/* Header */}
       <div className="mb-5 rounded-lg border bg-white p-4 shadow-sm">
         <div className="text-sm text-gray-600">Driver Information</div>
         <div className="mt-1 text-lg font-medium">
-          {driver?.name || "Driver"} &nbsp;|&nbsp; Employee ID: {driverId}
+          {driver?.name || "Driver"} &nbsp;|&nbsp; Employee ID: {employeeId}
         </div>
       </div>
 
@@ -260,7 +233,7 @@ export default function DriverPreferencesPage() {
         <div className="rounded-md border bg-white p-6 shadow-sm">Loading…</div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Available jobs */}
+          {/* Available Jobs */}
           <div className="rounded-lg border bg-white p-4 shadow-sm">
             <div className="mb-3 text-base font-semibold">Available Jobs</div>
             {availableJobs.length === 0 ? (
@@ -295,7 +268,7 @@ export default function DriverPreferencesPage() {
             )}
           </div>
 
-          {/* Your picks */}
+          {/* Your Job Preferences */}
           <div className="rounded-lg border bg-white p-4 shadow-sm">
             <div className="mb-3 text-base font-semibold">Your Job Preferences</div>
 
