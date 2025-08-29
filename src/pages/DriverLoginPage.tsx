@@ -1,565 +1,366 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
-import useDriverStore from '@/store/driverStore';
-import { Loader2, Key, ArrowRight } from 'lucide-react';
-import MainLayout from '@/components/layout/MainLayout';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { toast } from "react-hot-toast";
+import { supabase } from "@/lib/supabase";
 
-// Local pin helpers (same ones used before)
-import { getDriverPin, setDriverPin } from "@/utils/driverPass";
+type DriverRow = {
+  employee_id: string;
+  name: string | null;
+  site_id: string | null;
+  company_id: string | null;
+};
 
-const SECURITY_QUESTIONS = [
-  "What was your childhood nickname?",
-  "In what city were you born?",
-  "What is the name of your first pet?",
-  "What is your mother's maiden name?",
-  "What high school did you attend?",
-  "What was your favorite food as a child?",
-  "What was the make of your first car?",
-  "What was your favorite place to visit as a child?",
-  "What is your oldest sibling's middle name?",
-  "What was the street you lived on in third grade?"
-];
+type Phase = "ID" | "LOGIN" | "CREATE";
 
-function DriverLoginPage() {
-  const location = useLocation();
+export default function DriverLoginPage() {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const [search] = useSearchParams();
 
-  const {
-    drivers,
-    validateDriverCredentials,
-    setDriverPassword,
-    setDriverSecurityQuestions,
-    validateSecurityAnswers,
-    getDriverSecurityQuestions,
-    logDriverActivity
-  } = useDriverStore();
+  // ----- Local UI state -----
+  const [phase, setPhase] = useState<Phase>("ID");
+  const [loading, setLoading] = useState(false);
 
-  // Passed from HomePage
-  const employeeId = location.state?.employeeId as string | undefined;
-  const siteId = location.state?.siteId as string | undefined;
-  const siteName = location.state?.siteName as string | undefined;
-  const companyId = location.state?.companyId as string | undefined;
+  const [employeeIdInput, setEmployeeIdInput] = useState("");
+  const [driver, setDriver] = useState<DriverRow | null>(null);
 
-  const driver = drivers.find(d => d.employeeId === employeeId);
+  const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
-  const siteInfo = useMemo(() => {
-    if (siteName && siteId) return { name: siteName, id: siteId };
-    return driver ? { name: 'Your Facility', id: driver.siteId } : null;
-  }, [driver, siteId, siteName]);
-
-  // Shared state
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Normal login
-  const [password, setPassword] = useState('');
-
-  // First-time password setup
-  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-
-  // Security questions setup (post login or post first-time password)
-  const [showSecurityQuestions, setShowSecurityQuestions] = useState(false);
-  const [question1, setQuestion1] = useState('');
-  const [answer1, setAnswer1] = useState('');
-  const [question2, setQuestion2] = useState('');
-  const [answer2, setAnswer2] = useState('');
-
-  // Forgot password flow
-  const [isForgotPassword, setIsForgotPassword] = useState(false);
-  const [resetAnswer1, setResetAnswer1] = useState('');
-  const [resetAnswer2, setResetAnswer2] = useState('');
-  const [resetNewPassword, setResetNewPassword] = useState('');
-  const [resetConfirmNewPassword, setResetConfirmNewPassword] = useState('');
-  const [securityQuestions, setSecurityQuestions] = useState<{ question1: string, question2: string } | null>(null);
-
-  // Decide initial screen
+  // If the page is reached with ?emplid=… we prefill the ID
   useEffect(() => {
-    if (!employeeId) {
-      navigate('/');
+    const qId =
+      search.get("emplid") ||
+      search.get("empId") ||
+      search.get("employee_id") ||
+      search.get("id") ||
+      "";
+    if (qId) setEmployeeIdInput(qId);
+  }, [search]);
+
+  // Clean-ish heading/subtitle copy per phase
+  const heading = useMemo(() => {
+    if (phase === "ID") return "Driver Login";
+    if (phase === "LOGIN") return "Enter Your Password";
+    return "Set Up Your Password";
+  }, [phase]);
+
+  const subheading = useMemo(() => {
+    if (phase === "ID")
+      return "Enter your employee ID to access the job selection system.";
+    if (phase === "LOGIN")
+      return "Please enter your password to continue.";
+    return "Create a password to access the job selection system.";
+  }, [phase]);
+
+  // ---- Helpers -------------------------------------------------------------
+
+  const resetAll = () => {
+    setLoading(false);
+    setDriver(null);
+    setPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPhase("ID");
+  };
+
+  const fetchDriver = async (empId: string) => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("drivers")
+        .select("employee_id,name,site_id,company_id")
+        .eq("employee_id", empId.trim())
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        toast.error("Employee ID not found.");
+        return null;
+      }
+      return data as DriverRow;
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Could not look up that employee.");
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkHasPassword = async (empId: string) => {
+    // calls public.has_driver_password(text) returns boolean
+    const { data, error } = await supabase.rpc("has_driver_password", {
+      p_employee_id: empId,
+    });
+    if (error) {
+      console.error(error);
+      // Fail safe: treat as has password so we don’t accidentally expose setup to the wrong person
+      return true;
+    }
+    return Boolean(data);
+  };
+
+  const goToPreferences = (empId: string) => {
+    // Only pass the employee id via URL (no persisted session)
+    navigate(`/driver-preferences?emplid=${encodeURIComponent(empId)}`);
+  };
+
+  // ---- Actions -------------------------------------------------------------
+
+  const onSubmitEmployeeId = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const empId = employeeIdInput.trim();
+    if (!empId) {
+      toast.error("Please enter your employee ID.");
       return;
     }
 
-    // ✅ ALWAYS start on password screen if a PIN exists
-    // Only show password-setup if no PIN exists yet
-    const existingPin = getDriverPin(employeeId);
-    setShowPasswordSetup(!existingPin);
+    const d = await fetchDriver(empId);
+    if (!d) return;
 
-    // ❌ Do NOT auto-open security questions here.
-    // Only after successful login or after setting a password.
+    setDriver(d);
 
-    if (isForgotPassword && driver?.securityQuestionsSet) {
-      const qs = getDriverSecurityQuestions(employeeId);
-      if (qs) setSecurityQuestions(qs);
-    }
-  }, [employeeId, driver, navigate, isForgotPassword, getDriverSecurityQuestions]);
+    const hasPw = await checkHasPassword(empId);
+    setPhase(hasPw ? "LOGIN" : "CREATE");
+  };
 
-  // ----- LOGIN -----
-  const handleLogin = () => {
+  const onSubmitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driver) return;
+    const empId = driver.employee_id;
+
     if (!password) {
-      toast({ title: "Error", description: "Please enter your password", variant: "destructive" });
+      toast.error("Please enter your password.");
       return;
     }
 
-    setIsLoading(true);
-    setTimeout(() => {
-      const isValid = validateDriverCredentials(employeeId!, password);
-
-      if (!isValid) {
-        toast({ title: "Authentication Failed", description: "Incorrect password. Please try again.", variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-
-      if (driver) {
-        logDriverActivity({
-          driverId: employeeId!,
-          driverName: driver.name,
-          action: 'login',
-          details: 'Successfully logged in'
-        });
-      }
-
-      // If security questions not set yet, show that screen now
-      if (driver && !driver.securityQuestionsSet) {
-        setShowSecurityQuestions(true);
-        setIsLoading(false);
-        return;
-      }
-
-      // Otherwise go straight to preferences
-      navigate('/driver-preferences', {
-        state: {
-          employeeId,
-          authenticated: true,
-          siteId: siteId || driver?.siteId,
-          siteName,
-          companyId: companyId || driver?.companyId
-        }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("verify_driver_password", {
+        p_employee_id: empId,
+        p_plain: password,
       });
-    }, 500);
-  };
 
-  // ----- FIRST-TIME PASSWORD SETUP -----
-  const handlePasswordSetup = () => {
-    if (!newPassword || !confirmNewPassword) {
-      toast({ title: "Error", description: "Please enter and confirm your password", variant: "destructive" });
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
-      return;
-    }
-    if (newPassword.length < 6) {
-      toast({ title: "Error", description: "Password must be at least 6 characters long", variant: "destructive" });
-      return;
-    }
+      if (error) throw error;
 
-    setIsLoading(true);
-    setTimeout(() => {
-      // Persist to your store
-      setDriverPassword(employeeId!, newPassword);
-      // Also store PIN locally for kiosk devices
-      setDriverPin(employeeId!, newPassword);
-
-      setIsLoading(false);
-      setShowPasswordSetup(false);
-
-      // After first-time password setup, require security questions
-      if (driver && !driver.securityQuestionsSet) {
-        setShowSecurityQuestions(true);
+      if (data === true) {
+        toast.success("Welcome!");
+        goToPreferences(empId);
       } else {
-        navigate('/driver-preferences', {
-          state: {
-            employeeId,
-            authenticated: true,
-            siteId: siteId || driver?.siteId,
-            siteName,
-            companyId: companyId || driver?.companyId
-          }
-        });
+        toast.error("Incorrect password. Please try again.");
       }
-
-      toast({ title: "Password Set", description: "Your password has been set successfully." });
-    }, 500);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Could not verify your password.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ----- SECURITY QUESTIONS SETUP -----
-  const handleSecurityQuestionsSetup = () => {
-    if (!question1 || !answer1 || !question2 || !answer2) {
-      toast({ title: "Error", description: "Please select both questions and provide answers", variant: "destructive" });
+  const onSubmitCreatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driver) return;
+
+    if (!newPassword || !confirmPassword) {
+      toast.error("Please fill out both password fields.");
       return;
     }
-    if (question1 === question2) {
-      toast({ title: "Error", description: "Please select two different security questions", variant: "destructive" });
-      return;
-    }
-    if (answer1.length < 2 || answer2.length < 2) {
-      toast({ title: "Error", description: "Security answers must be at least 2 characters long", variant: "destructive" });
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match.");
       return;
     }
 
-    setIsLoading(true);
-    setTimeout(() => {
-      setDriverSecurityQuestions(employeeId!, { question1, answer1, question2, answer2 });
-      setIsLoading(false);
-      setShowSecurityQuestions(false);
+    // Simple minimum — you can harden this as needed
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
 
-      toast({ title: "Security Questions Set", description: "Your security questions have been saved." });
-
-      navigate('/driver-preferences', {
-        state: {
-          employeeId,
-          authenticated: true,
-          siteId: siteId || driver?.siteId,
-          siteName,
-          companyId: companyId || driver?.companyId
-        }
+    setLoading(true);
+    try {
+      const { error } = await supabase.rpc("set_driver_password", {
+        p_employee_id: driver.employee_id,
+        p_plain: newPassword,
       });
-    }, 500);
+      if (error) throw error;
+
+      toast.success("Password created. You’re in!");
+      goToPreferences(driver.employee_id);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Could not set your password. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ----- FORGOT PASSWORD -----
-  const handlePasswordReset = () => {
-    if (!resetAnswer1 || !resetAnswer2) {
-      toast({ title: "Error", description: "Please answer both security questions", variant: "destructive" });
-      return;
-    }
-    if (!resetNewPassword || !resetConfirmNewPassword) {
-      toast({ title: "Error", description: "Please enter and confirm your new password", variant: "destructive" });
-      return;
-    }
-    if (resetNewPassword !== resetConfirmNewPassword) {
-      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
-      return;
-    }
-    if (resetNewPassword.length < 6) {
-      toast({ title: "Error", description: "Password must be at least 6 characters long", variant: "destructive" });
-      return;
-    }
+  // ---- Renders -------------------------------------------------------------
 
-    setIsLoading(true);
-    setTimeout(() => {
-      const ok = validateSecurityAnswers(employeeId!, { answer1: resetAnswer1, answer2: resetAnswer2 });
-      if (!ok) {
-        toast({ title: "Incorrect Answers", description: "Security answers are incorrect.", variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-
-      setDriverPassword(employeeId!, resetNewPassword);
-      setDriverPin(employeeId!, resetNewPassword);
-
-      setIsLoading(false);
-      setIsForgotPassword(false);
-
-      toast({ title: "Password Reset Successful", description: "You can now log in with your new password." });
-    }, 500);
-  };
-
-  const handleBackToLogin = () => {
-    setIsForgotPassword(false);
-    setResetAnswer1('');
-    setResetAnswer2('');
-    setResetNewPassword('');
-    setResetConfirmNewPassword('');
-  };
-
-  // ========= RENDERS =========
-
-  // A) First-time password setup
-  if (showPasswordSetup) {
-    return (
-      <MainLayout title="Set Up Your Password">
-        <div className="jss-container py-8">
-          <Card className="max-w-md mx-auto">
-            <CardHeader>
-              <CardTitle>Create Your Password</CardTitle>
-              <CardDescription>You need to set up a password to access the job selection system.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="new-password">New Password</Label>
-                  <Input
-                    id="new-password"
-                    type="password"
-                    placeholder="Enter your new password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline" onClick={() => navigate('/')}>Cancel</Button>
-              <Button onClick={handlePasswordSetup} disabled={isLoading || !newPassword || !confirmNewPassword}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Setting up...
-                  </>
-                ) : (
-                  <>
-                    Create Password
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </>
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      </MainLayout>
-    );
-  }
-
-  // B) Security questions setup (only after successful password login OR password setup)
-  if (showSecurityQuestions) {
-    return (
-      <MainLayout title="Set Up Security Questions">
-        <div className="jss-container py-8">
-          <Card className="max-w-md mx-auto">
-            <CardHeader>
-              <CardTitle>Set Up Security Questions</CardTitle>
-              <CardDescription>Please set up security questions to help you recover your password if needed.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="question1">Security Question 1</Label>
-                  <Select value={question1} onValueChange={setQuestion1}>
-                    <SelectTrigger id="question1">
-                      <SelectValue placeholder="Select a security question" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SECURITY_QUESTIONS.map((q, i) => (
-                        <SelectItem key={i} value={q}>{q}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="answer1">Answer 1</Label>
-                  <Input
-                    id="answer1"
-                    placeholder="Your answer"
-                    value={answer1}
-                    onChange={(e) => setAnswer1(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="question2">Security Question 2</Label>
-                  <Select value={question2} onValueChange={setQuestion2}>
-                    <SelectTrigger id="question2">
-                      <SelectValue placeholder="Select a security question" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SECURITY_QUESTIONS.map((q, i) => (
-                        <SelectItem key={i} value={q}>{q}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="answer2">Answer 2</Label>
-                  <Input
-                    id="answer2"
-                    placeholder="Your answer"
-                    value={answer2}
-                    onChange={(e) => setAnswer2(e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline" onClick={() => navigate('/')}>Cancel</Button>
-              <Button onClick={handleSecurityQuestionsSetup} disabled={isLoading || !question1 || !answer1 || !question2 || !answer2}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    Save & Continue
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </>
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      </MainLayout>
-    );
-  }
-
-  // C) Forgot password flow
-  if (isForgotPassword) {
-    return (
-      <MainLayout title="Reset Your Password">
-        <div className="jss-container py-8">
-          <Card className="max-w-md mx-auto">
-            <CardHeader>
-              <CardTitle>Reset Your Password</CardTitle>
-              <CardDescription>Answer your security questions to reset your password.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {securityQuestions && (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="answer1">{securityQuestions.question1}</Label>
-                      <Input
-                        id="answer1"
-                        placeholder="Your answer"
-                        value={resetAnswer1}
-                        onChange={(e) => setResetAnswer1(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="answer2">{securityQuestions.question2}</Label>
-                      <Input
-                        id="answer2"
-                        placeholder="Your answer"
-                        value={resetAnswer2}
-                        onChange={(e) => setResetAnswer2(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="reset-new-password">New Password</Label>
-                      <Input
-                        id="reset-new-password"
-                        type="password"
-                        placeholder="Enter your new password"
-                        value={resetNewPassword}
-                        onChange={(e) => setResetNewPassword(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="reset-confirm-new-password">Confirm New Password</Label>
-                      <Input
-                        id="reset-confirm-new-password"
-                        type="password"
-                        placeholder="Confirm your new password"
-                        value={resetConfirmNewPassword}
-                        onChange={(e) => setResetConfirmNewPassword(e.target.value)}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline" onClick={handleBackToLogin}>Back to Login</Button>
-              <Button onClick={handlePasswordReset} disabled={isLoading || !resetAnswer1 || !resetAnswer2 || !resetNewPassword || !resetConfirmNewPassword}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Resetting...
-                  </>
-                ) : (
-                  "Reset Password"
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      </MainLayout>
-    );
-  }
-
-  // D) Normal password login (default)
   return (
-    <MainLayout title="Driver Login">
-      <div className="jss-container py-8">
-        <Card className="max-w-md mx-auto">
-          <CardHeader>
-            <CardTitle>Driver Login</CardTitle>
-            <CardDescription>
-              Please enter your password to access the job selection system.
-              {siteInfo && (
-                <div className="mt-2 text-sm font-medium text-blue-600">
-                  You are logging into: {siteInfo.name} ({siteInfo.id})
-                </div>
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between mb-4">
-              <Label>Employee ID:</Label>
-              <span className="font-medium">{employeeId}</span>
+    <div className="mx-auto max-w-xl px-4 py-10">
+      <h1 className="text-2xl font-semibold mb-2">{heading}</h1>
+      <p className="text-sm text-slate-600 mb-6">{subheading}</p>
+
+      {/* Phase: Enter ID */}
+      {phase === "ID" && (
+        <form onSubmit={onSubmitEmployeeId} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Employee ID
+            </label>
+            <input
+              className="w-full rounded border px-3 py-2"
+              value={employeeIdInput}
+              onChange={(e) => setEmployeeIdInput(e.target.value)}
+              inputMode="numeric"
+              autoFocus
+              placeholder="e.g., 1234567"
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+              disabled={loading}
+            >
+              {loading ? "Checking…" : "Continue"}
+            </button>
+            <button
+              type="button"
+              className="rounded border px-4 py-2 hover:bg-slate-50"
+              onClick={resetAll}
+            >
+              Clear
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Phase: Password Login */}
+      {phase === "LOGIN" && driver && (
+        <form onSubmit={onSubmitPassword} className="space-y-5">
+          <div className="rounded border p-3 bg-slate-50 text-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">{driver.name ?? "Driver"}</div>
+                <div className="text-slate-600">ID: {driver.employee_id}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded border px-3 py-1 text-sm hover:bg-slate-100"
+                onClick={resetAll}
+              >
+                Not you? New driver
+              </button>
             </div>
-            {driver && (
-              <div className="flex items-center justify-between mb-6">
-                <Label>Driver Name:</Label>
-                <span className="font-medium">{driver.name}</span>
-              </div>
-            )}
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                />
-              </div>
-              <div className="text-right">
-                <Button variant="link" onClick={() => setIsForgotPassword(true)} className="text-sm">
-                  Forgot password?
-                </Button>
-              </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Password</label>
+            <input
+              className="w-full rounded border px-3 py-2"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+              placeholder="Enter your password"
+            />
+            <div className="mt-2">
+              <Link
+                to={`/reset-password?emplid=${encodeURIComponent(
+                  driver.employee_id
+                )}`}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Forgot password?
+              </Link>
             </div>
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button variant="outline" onClick={() => navigate('/')}>Back</Button>
-            <Button onClick={handleLogin} disabled={isLoading || !password}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Logging in...
-                </>
-              ) : (
-                <>
-                  Login
-                  <Key className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    </MainLayout>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              className="rounded border px-4 py-2 hover:bg-slate-50"
+              onClick={resetAll}
+            >
+              Back
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+              disabled={loading}
+            >
+              {loading ? "Verifying…" : "Login"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Phase: Create Password */}
+      {phase === "CREATE" && driver && (
+        <form onSubmit={onSubmitCreatePassword} className="space-y-5">
+          <div className="rounded border p-3 bg-slate-50 text-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">{driver.name ?? "Driver"}</div>
+                <div className="text-slate-600">ID: {driver.employee_id}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded border px-3 py-1 text-sm hover:bg-slate-100"
+                onClick={resetAll}
+              >
+                Not you? New driver
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              New Password
+            </label>
+            <input
+              className="w-full rounded border px-3 py-2"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoFocus
+              placeholder="Enter a new password"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Confirm Password
+            </label>
+            <input
+              className="w-full rounded border px-3 py-2"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter the same password"
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              className="rounded border px-4 py-2 hover:bg-slate-50"
+              onClick={() => setPhase("LOGIN")}
+            >
+              Back
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+              disabled={loading}
+            >
+              {loading ? "Saving…" : "Create Password"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }
-
-export default DriverLoginPage;
