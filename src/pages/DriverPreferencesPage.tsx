@@ -1,358 +1,332 @@
-// src/pages/DriverPreferencesPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 
-// -- Types --------------------------------------------------------------------
-
-type Driver = {
-  id: string;
-  employee_id: string;
-  name?: string | null;
-  site_id?: string | null;
-  company_id?: string | null;
-  seniority?: number | null;
-};
-
+// ---- Types
 type Job = {
-  id: string;
-  job_id?: string | null; // optional human-friendly id
-  title?: string | null;
-  start_time?: string | null;
-  days?: string | null;
-  location?: string | null;
-  airport?: boolean | null;
+  id: string;            // stable identifier stored in prefs
+  title: string;         // label in UI
+  time: string;          // small caption
 };
 
-// -- Helpers ------------------------------------------------------------------
+// You can keep expanding this list or replace with a DB-driven list later.
+// IMPORTANT: ids here are what get saved into driver_preferences.prefs
+const AVAILABLE_JOBS: Job[] = [
+  { id: "JOB-100", title: "AM Loop", time: "06:15" },
+  { id: "JOB-101", title: "AM Bulk", time: "07:00" },
+  { id: "JOB-102", title: "AM Core", time: "08:00" },
+  { id: "JOB-103", title: "Morning Sort", time: "08:00" },
+  { id: "JOB-104", title: "Day Sort", time: "09:00" },
+  { id: "JOB-105", title: "Late AM Run", time: "10:30" },
+  { id: "JOB-106", title: "Afternoon", time: "14:00" },
+  { id: "JOB-107", title: "Evening", time: "17:00" },
+  { id: "JOB-108", title: "Route 8 - Downtown Express", time: "06:00" },
+  { id: "JOB-109", title: "Route 15 - Airport Shuttle", time: "10:00" },
+  { id: "JOB-110", title: "Route 3 - University Loop", time: "07:00" },
+  { id: "JOB-111", title: "Route 22 - Shopping District", time: "12:00" },
+];
 
-function readEmpId(search: URLSearchParams): string | null {
-  // Accept several spellings + kiosk memory.
-  const v =
-    search.get("empId") ||
-    search.get("emplid") ||
-    search.get("empid") ||
-    search.get("id") ||
-    sessionStorage.getItem("empId") ||
-    localStorage.getItem("empId") ||
-    "";
-  return v.trim() ? v.trim() : null;
+// Renders a pill-like button
+function SmallButton(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const { className = "", ...rest } = props;
+  return (
+    <button
+      {...rest}
+      className={
+        "px-3 py-1 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 active:bg-neutral-100 " +
+        className
+      }
+    />
+  );
 }
 
-// -- Page ---------------------------------------------------------------------
-
 export default function DriverPreferencesPage() {
-  const navigate = useNavigate();
   const [search] = useSearchParams();
+  const navigate = useNavigate();
 
-  // Identity
-  const employeeId = useMemo(() => readEmpId(search), [search]);
-  const [driver, setDriver] = useState<Driver | null>(null);
+  // Accept “emplid” param (consistent with the rest of the flow)
+  const employeeId = useMemo(() => {
+    const v =
+      search.get("emplid") ||
+      search.get("empId") ||
+      search.get("employee_id") ||
+      "";
+    return (v || "").trim();
+  }, [search]);
 
-  // Data
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [picks, setPicks] = useState<string[]>([]); // ordered list of job ids
-  const [loading, setLoading] = useState(true);
+  // Driver info (optional: shown at the top)
+  const [driverName, setDriverName] = useState<string>("");
+
+  // Selected job ids (the array we persist in prefs)
+  const [selected, setSelected] = useState<string[]>([]);
+
+  // Page state
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(
-    null
-  );
+  const [status, setStatus] = useState<string>("");
 
-  // Load driver, jobs, and existing preferences
+  // Derived map for quick lookups
+  const jobsById = useMemo(() => {
+    const m = new Map<string, Job>();
+    for (const j of AVAILABLE_JOBS) m.set(j.id, j);
+    return m;
+  }, []);
+
+  // Load: driver name + existing preferences
   useEffect(() => {
+    // guard if missing employee id
+    if (!employeeId) return;
+
+    let cancelled = false;
     (async () => {
-      if (!employeeId) {
-        setLoading(false);
-        return;
-      }
-
-      // Persist for kiosk/back-nav convenience
-      sessionStorage.setItem("empId", employeeId);
-      localStorage.setItem("empId", employeeId);
-
       try {
         setLoading(true);
+        setStatus("Loading driver and preferences...");
 
-        // 1) Driver info (for header)
-        const { data: drow, error: derr } = await supabase
+        // 1) driver name (optional/nice to have)
+        const { data: dRow, error: dErr } = await supabase
           .from("drivers")
-          .select("*")
+          .select("name")
           .eq("employee_id", employeeId)
-          .limit(1)
           .maybeSingle();
-        if (derr) throw derr;
-        if (drow) {
-          setDriver({
-            id: drow.id,
-            employee_id: drow.employee_id,
-            name: drow.name ?? null,
-            site_id: drow.site_id ?? null,
-            company_id: drow.company_id ?? null,
-            seniority: drow.seniority ?? null,
-          });
-        } else {
-          setDriver(null);
-          setToast({
-            type: "err",
-            msg: `We couldn't find a driver for ID ${employeeId}.`,
-          });
+        if (dErr) {
+          // don't fail page—just note it
+          console.warn("drivers lookup error:", dErr.message);
+        } else if (!cancelled && dRow?.name) {
+          setDriverName(dRow.name);
         }
 
-        // 2) Jobs (you can filter by site/company if desired)
-        const { data: jrows, error: jerr } = await supabase
-          .from("jobs")
-          .select("*")
-          .order("id", { ascending: true });
-        if (jerr) throw jerr;
-        setJobs(jrows ?? []);
-
-        // 3) Existing preferences from driver_preferences (jsonb array)
-        const { data: prow, error: perr } = await supabase
+        // 2) preferences
+        const { data: pRow, error: pErr } = await supabase
           .from("driver_preferences")
           .select("prefs")
           .eq("employee_id", employeeId)
-          .limit(1)
           .maybeSingle();
-        if (perr) throw perr;
 
-        const saved = (prow?.prefs as string[] | null) ?? [];
-        setPicks(saved);
+        if (pErr) {
+          console.warn("prefs select error:", pErr.message);
+        }
+
+        if (!cancelled) {
+          if (pRow?.prefs && Array.isArray(pRow.prefs)) {
+            // ensure strings
+            setSelected(
+              pRow.prefs.map((x: any) => String(x)).filter(Boolean)
+            );
+          } else {
+            setSelected([]);
+          }
+          setStatus("");
+        }
       } catch (e: any) {
         console.error(e);
-        setToast({ type: "err", msg: e?.message ?? "Failed to load data." });
+        if (!cancelled) {
+          setStatus("Failed to load data.");
+          alert("Failed to load preferences. Please try again.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [employeeId]);
 
-  // Derived
-  const availableJobs = useMemo(() => {
-    const picked = new Set(picks);
-    return jobs.filter((j) => j.id && !picked.has(j.id));
-  }, [jobs, picks]);
-
-  // UI actions
-  function addPick(jobId: string) {
-    if (!jobId || picks.includes(jobId)) return;
-    setPicks((p) => [...p, jobId]);
+  // Add / remove handlers (de-duplicate, keep order of selection)
+  function addJob(id: string) {
+    setSelected((prev) => (prev.includes(id) ? prev : [...prev, id]));
   }
-  function removePick(jobId: string) {
-    setPicks((p) => p.filter((id) => id !== jobId));
+  function removeJob(id: string) {
+    setSelected((prev) => prev.filter((x) => x !== id));
   }
-  function move(jobId: string, dir: "up" | "down") {
-    setPicks((arr) => {
-      const i = arr.indexOf(jobId);
-      if (i < 0) return arr;
-      const j = dir === "up" ? i - 1 : i + 1;
-      if (j < 0 || j >= arr.length) return arr;
-      const copy = [...arr];
-      [copy[i], copy[j]] = [copy[j], copy[i]];
+  function moveUp(idx: number) {
+    setSelected((prev) => {
+      if (idx <= 0 || idx >= prev.length) return prev;
+      const copy = [...prev];
+      [copy[idx - 1], copy[idx]] = [copy[idx], copy[idx - 1]];
+      return copy;
+    });
+  }
+  function moveDown(idx: number) {
+    setSelected((prev) => {
+      if (idx < 0 || idx >= prev.length - 1) return prev;
+      const copy = [...prev];
+      [copy[idx + 1], copy[idx]] = [copy[idx], copy[idx + 1]];
       return copy;
     });
   }
 
-  // Save -> upsert single row in driver_preferences
-  async function save() {
+  // Save → upsert to driver_preferences
+  async function handleSave() {
     if (!employeeId) {
-      alert("Missing driver ID. Please log in again.");
-      return;
+      alert("Missing employee ID. Please return to login.");
+      return navigate("/driver-login");
     }
+
+    setSaving(true);
+    setStatus("Saving preferences...");
+
+    // You may change these hard-coded values if you want to record company/site
+    const company_id = "JACFL";
+    const site_id = "JACFL";
+
     try {
-      setSaving(true);
+      const { error } = await supabase.from("driver_preferences").upsert(
+        {
+          employee_id: employeeId,
+          company_id,
+          site_id,
+          prefs: selected, // stored as jsonb array
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "employee_id" }
+      );
 
-      const payload = {
-        employee_id: employeeId,
-        prefs: picks, // jsonb array
-        updated_at: new Date().toISOString(),
-      };
+      if (error) {
+        console.error("upsert error:", error.message);
+        setStatus("Save failed.");
+        alert("Could not save preferences. Please try again.");
+        return;
+      }
 
-      // onConflict: employee_id (primary key per your step 2b)
-      const { error } = await supabase
-        .from("driver_preferences")
-        .upsert(payload, { onConflict: "employee_id" });
-
-      if (error) throw error;
-
-      setToast({ type: "ok", msg: "Your preferences have been saved." });
+      setStatus("Saved.");
+      // Optional: navigate somewhere after save
+      // navigate("/some/next/page");
+      alert("Preferences saved!");
     } catch (e: any) {
       console.error(e);
-      setToast({
-        type: "err",
-        msg:
-          e?.message ??
-          "We could not save your preferences. Please try again.",
-      });
+      setStatus("Save failed.");
+      alert("Could not save preferences. Please try again.");
     } finally {
       setSaving(false);
     }
   }
 
-  // Render
+  // Exit (go back to login)
+  function handleExit() {
+    navigate("/driver-login");
+  }
+
   if (!employeeId) {
     return (
-      <div className="mx-auto max-w-2xl p-6">
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-900">
-          Missing driver ID. Please return to the login page.
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+          Missing employee id. Please return to Login.
         </div>
         <div className="mt-4">
-          <button
-            className="rounded-md border px-4 py-2"
-            onClick={() => navigate("/")}
-          >
+          <SmallButton onClick={() => navigate("/driver-login")}>
             Back to Login
-          </button>
+          </SmallButton>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      {/* Header */}
-      <div className="mb-5 rounded-lg border bg-white p-4 shadow-sm">
-        <div className="text-sm text-gray-600">Driver Information</div>
-        <div className="mt-1 text-lg font-medium">
-          {driver?.name || "Driver"} &nbsp;|&nbsp; Employee ID: {employeeId}
+    <div className="max-w-6xl mx-auto p-4 md:p-6">
+      {/* Driver banner */}
+      <div className="mb-4 rounded-md border border-neutral-200 bg-white p-3 text-sm">
+        <div className="font-medium">Driver Information</div>
+        <div className="text-neutral-600">
+          {driverName ? `${driverName}  |  ` : null}
+          Employee ID: {employeeId}
         </div>
       </div>
 
-      {toast && (
-        <div
-          className={`mb-4 rounded-md border p-3 ${
-            toast.type === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-rose-200 bg-rose-50 text-rose-900"
-          }`}
-        >
-          {toast.msg}
-        </div>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Left: Available Jobs */}
+        <div className="md:col-span-2 rounded-md border border-neutral-200 bg-white p-4">
+          <div className="font-semibold mb-2">Available Jobs</div>
+          <div className="space-y-2">
+            {AVAILABLE_JOBS.map((job) => {
+              const added = selected.includes(job.id);
+              return (
+                <div
+                  key={job.id}
+                  className="flex items-center justify-between rounded-md border border-neutral-200 p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{job.title}</div>
+                    <div className="text-xs text-neutral-500">{job.time}</div>
+                  </div>
 
-      {loading ? (
-        <div className="rounded-md border bg-white p-6 shadow-sm">Loading…</div>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Available Jobs */}
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <div className="mb-3 text-base font-semibold">Available Jobs</div>
-            {availableJobs.length === 0 ? (
-              <div className="text-sm text-gray-500">No jobs to add.</div>
-            ) : (
-              <ul className="space-y-2">
-                {availableJobs.map((job) => (
-                  <li
-                    key={job.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">
-                        {job.title || job.job_id || job.id}
-                      </div>
-                      <div className="truncate text-xs text-gray-500">
-                        {job.start_time ? `${job.start_time} • ` : ""}
-                        {job.days || ""}
-                        {job.location ? ` • ${job.location}` : ""}
-                        {job.airport ? " • Airport" : ""}
-                      </div>
-                    </div>
-                    <button
-                      className="ml-3 rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
-                      onClick={() => addPick(job.id)}
-                    >
-                      Add
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  <div className="shrink-0">
+                    {!added ? (
+                      <SmallButton onClick={() => addJob(job.id)}>Add</SmallButton>
+                    ) : (
+                      <SmallButton
+                        className="bg-neutral-100"
+                        onClick={() => removeJob(job.id)}
+                      >
+                        Remove
+                      </SmallButton>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        </div>
 
-          {/* Your Job Preferences */}
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <div className="mb-3 text-base font-semibold">Your Job Preferences</div>
+        {/* Right: Selected */}
+        <div className="rounded-md border border-neutral-200 bg-white p-4">
+          <div className="font-semibold mb-2">Your Job Preferences</div>
 
-            {picks.length === 0 ? (
-              <div className="text-sm text-gray-500">
-                You haven’t selected any jobs yet.
-              </div>
-            ) : (
-              <ol className="space-y-2">
-                {picks.map((jobId, idx) => {
-                  const job = jobs.find((j) => j.id === jobId);
-                  return (
-                    <li
-                      key={jobId}
-                      className="flex items-center justify-between rounded-md border px-3 py-2"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-100 text-sm font-semibold">
-                          {idx + 1}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            {job?.title || job?.job_id || jobId}
-                          </div>
-                          <div className="truncate text-xs text-gray-500">
-                            {job?.start_time ? `${job.start_time} • ` : ""}
-                            {job?.days || ""}
-                            {job?.location ? ` • ${job.location}` : ""}
-                            {job?.airport ? " • Airport" : ""}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() => move(jobId, "up")}
-                          disabled={idx === 0}
-                          title="Move up"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() => move(jobId, "down")}
-                          disabled={idx === picks.length - 1}
-                          title="Move down"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50"
-                          onClick={() => removePick(jobId)}
-                          title="Remove"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                onClick={save}
-                disabled={saving}
-                className={`rounded-md px-4 py-2 text-white ${
-                  saving
-                    ? "cursor-not-allowed bg-indigo-300"
-                    : "bg-indigo-600 hover:bg-indigo-700"
-                }`}
-              >
-                {saving ? "Saving…" : "Save Preferences"}
-              </button>
-              <button
-                className="rounded-md border px-4 py-2"
-                onClick={() => navigate("/")}
-              >
-                Exit
-              </button>
+          {selected.length === 0 ? (
+            <div className="text-sm text-neutral-500">
+              You haven’t selected any jobs yet.
             </div>
+          ) : (
+            <ol className="list-decimal pl-5 space-y-2">
+              {selected.map((id, idx) => {
+                const job = jobsById.get(id);
+                return (
+                  <li key={id} className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">
+                        {job?.title ?? id}
+                      </div>
+                      {job?.time ? (
+                        <div className="text-xs text-neutral-500">{job.time}</div>
+                      ) : null}
+                    </div>
+                    <div className="shrink-0 space-x-2">
+                      <SmallButton onClick={() => moveUp(idx)}>↑</SmallButton>
+                      <SmallButton onClick={() => moveDown(idx)}>↓</SmallButton>
+                      <SmallButton onClick={() => removeJob(id)}>Remove</SmallButton>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+
+          <div className="mt-4 flex flex-col gap-2">
+            <button
+              disabled={saving || loading}
+              onClick={handleSave}
+              className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save Preferences"}
+            </button>
+            <button
+              onClick={handleExit}
+              className="inline-flex items-center justify-center rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-50"
+            >
+              Exit
+            </button>
+
+            {status ? (
+              <div className="text-xs text-neutral-500 mt-1">{status}</div>
+            ) : null}
           </div>
         </div>
+      </div>
+
+      {loading && (
+        <div className="mt-4 text-sm text-neutral-500">Loading…</div>
       )}
     </div>
   );
