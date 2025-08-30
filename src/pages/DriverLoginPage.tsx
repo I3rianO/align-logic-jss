@@ -6,8 +6,8 @@ import { supabase } from "@/lib/supabase";
 
 /**
  * DriverLoginPage
- * - Step 1: Ask for Employee ID if not provided
- * - Step 2: If Employee ID present, fetch driver info and show password entry
+ * - Step 1: Enter Employee ID, click Continue (writes ?emplid= to URL)
+ * - Step 2: Once ?emplid= is present, fetch driver + password status
  * - On success, redirect to Driver Preferences with emplid pinned in the URL
  * - Shows a green success banner when redirected with ?reset=ok
  */
@@ -15,7 +15,7 @@ export default function DriverLoginPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
 
-  // Accept several possible spellings just in case
+  // Read the chosen ID only from the URL param (after user clicks Continue)
   const paramId = useMemo(() => {
     return (
       search.get("emplid") ||
@@ -26,22 +26,25 @@ export default function DriverLoginPage() {
     ).trim();
   }, [search]);
 
+  // Local input field state for Step 1
   const [employeeId, setEmployeeId] = useState<string>(paramId);
   const [driverName, setDriverName] = useState<string>("");
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
-
-  // ✅ success banner when coming back from reset flow
   const resetOk = search.get("reset") === "ok";
 
+  // Keep the input box in sync if the URL param changes (e.g., after Continue)
+  useEffect(() => {
+    if (paramId && employeeId !== paramId) setEmployeeId(paramId);
+  }, [paramId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /**
-   * When we have an employeeId, look up the driver and whether a password exists.
-   * - public.drivers contains (employee_id, name, company_id, site_id, ...)
-   * - public.has_driver_password(p_employee_id text) returns boolean
+   * Lookup runs ONLY when ?emplid= is present (after Continue),
+   * not on every keystroke while typing.
    */
   useEffect(() => {
-    if (!employeeId) return;
+    if (!paramId) return;
     let cancelled = false;
 
     (async () => {
@@ -51,7 +54,7 @@ export default function DriverLoginPage() {
         const { data: driverRow, error: dErr } = await supabase
           .from("drivers")
           .select("name")
-          .eq("employee_id", employeeId)
+          .eq("employee_id", paramId)
           .maybeSingle();
 
         if (dErr) throw dErr;
@@ -72,9 +75,8 @@ export default function DriverLoginPage() {
         // Ask SQL helper if password exists
         const { data: hasRow, error: hErr } = await supabase.rpc(
           "has_driver_password",
-          { p_employee_id: employeeId }
+          { p_employee_id: paramId }
         );
-
         if (hErr) throw hErr;
 
         if (!cancelled) {
@@ -93,11 +95,9 @@ export default function DriverLoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [employeeId]);
+  }, [paramId]);
 
-  /**
-   * Step 1 submit: ensure employeeId is present and push stateful URL
-   */
+  /** Step 1 submit: push the URL with ?emplid= */
   function handleIdSubmit(e: React.FormEvent) {
     e.preventDefault();
     const id = employeeId.trim();
@@ -108,12 +108,10 @@ export default function DriverLoginPage() {
     navigate(`/driver-login?emplid=${encodeURIComponent(id)}`);
   }
 
-  /**
-   * Login submit: verify password via SQL function verify_driver_password
-   */
+  /** Step 2 login submit: verify password via RPC */
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (!employeeId) return;
+    if (!paramId) return;
     if (!password) {
       toast.error("Please enter your password.");
       return;
@@ -121,15 +119,14 @@ export default function DriverLoginPage() {
     setLoading(true);
     try {
       const { data: ok, error } = await supabase.rpc("verify_driver_password", {
-        p_employee_id: employeeId,
+        p_employee_id: paramId,
         p_plain: password,
       });
-
       if (error) throw error;
 
       if (ok === true) {
         toast.success("Login successful!");
-        navigate(`/driver-preferences?emplid=${encodeURIComponent(employeeId)}`);
+        navigate(`/driver-preferences?emplid=${encodeURIComponent(paramId)}`);
       } else {
         toast.error("Invalid password. Please try again.");
       }
@@ -165,8 +162,8 @@ export default function DriverLoginPage() {
     );
   }
 
-  // Step 1: no employeeId yet
-  if (!employeeId) {
+  // Step 1: no ?emplid= in URL yet → just the ID form
+  if (!paramId) {
     return (
       <PageShell>
         <form onSubmit={handleIdSubmit} className="space-y-4">
@@ -178,7 +175,9 @@ export default function DriverLoginPage() {
             onChange={(e) => setEmployeeId(e.target.value)}
             className="w-full rounded-md border px-3 py-2 outline-none ring-blue-500 focus:ring"
             placeholder="e.g., 1234567"
-            inputMode="numeric"
+            // Use plain text to allow IDs like D001 / TEMP-7
+            inputMode="text"
+            autoFocus
           />
 
           <div className="flex items-center gap-2">
@@ -202,7 +201,7 @@ export default function DriverLoginPage() {
     );
   }
 
-  // Step 2: have an employeeId
+  // Step 2: have ?emplid= → show driver info + either login or set-password path
   return (
     <PageShell>
       {loading && hasPassword === null ? (
@@ -222,7 +221,7 @@ export default function DriverLoginPage() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">{driverName || "Driver"}</div>
-                <div className="text-slate-600">ID: {employeeId}</div>
+                <div className="text-slate-600">ID: {paramId}</div>
               </div>
               <Link
                 to="/driver-login"
@@ -250,11 +249,12 @@ export default function DriverLoginPage() {
                 className="w-full rounded-md border px-3 py-2 outline-none ring-blue-500 focus:ring"
                 placeholder="Enter your password"
                 autoComplete="current-password"
+                autoFocus
               />
 
               <div className="flex items-center justify-between">
                 <Link
-                  to={`/reset-password?emplid=${encodeURIComponent(employeeId)}`}
+                  to={`/reset-password?emplid=${encodeURIComponent(paramId)}`}
                   className="text-sm text-blue-700 hover:underline"
                 >
                   Forgot password?
@@ -284,7 +284,7 @@ export default function DriverLoginPage() {
               </div>
               <div className="flex gap-2">
                 <Link
-                  to={`/set-new-password?emplid=${encodeURIComponent(employeeId)}`}
+                  to={`/set-new-password?emplid=${encodeURIComponent(paramId)}`}
                   className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
                 >
                   Set Up Password
