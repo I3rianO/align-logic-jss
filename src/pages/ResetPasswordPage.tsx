@@ -1,96 +1,109 @@
 // src/pages/ResetPasswordPage.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import toast from "react-hot-toast";
+import { supabase } from "@/lib/supabase";
 
+/**
+ * ResetPasswordPage
+ * - Step 1 of reset flow: confirm Employee ID exists
+ * - If found → navigate to /set-new-password?emplid=...
+ * - If not found → toast error and stay
+ */
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
 
-  // Accept several param spellings just in case
-  const paramId = useMemo(
+  const initialId = useMemo(
     () =>
-      (search.get("empId") ||
+      (
         search.get("emplid") ||
         search.get("empid") ||
         search.get("id") ||
-        "") as string,
+        ""
+      ).trim(),
     [search]
   );
 
-  const [employeeId, setEmployeeId] = useState<string>(paramId);
+  const [employeeId, setEmployeeId] = useState<string>(initialId);
+  const [loading, setLoading] = useState(false);
 
-  // Keep state in sync if URL query shows up later (e.g., via nav)
-  useEffect(() => {
-    if (paramId && paramId !== employeeId) {
-      setEmployeeId(paramId);
-    }
-  }, [paramId, employeeId]);
-
-  // If we already have an ID in the URL, enable the button immediately.
-  const canSubmit = employeeId.trim().length > 0;
-
-  function handleReset(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const id = employeeId.trim();
-
     if (!id) {
-      alert("Please enter your Employee ID.");
+      toast.error("Please enter your Employee ID.");
       return;
     }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("drivers")
+        .select("employee_id")
+        .eq("employee_id", id)
+        .maybeSingle();
 
-    // persist for the rest of the flow (handy for kiosk sessions)
-    sessionStorage.setItem("empId", id);
-    localStorage.setItem("empId", id);
+      if (error) throw error;
 
-    // go collect security answers
-    navigate(`/security-questions?empId=${encodeURIComponent(id)}`);
+      if (!data) {
+        toast.error("We couldn’t find that Employee ID.");
+        return;
+      }
+
+      // Found → proceed to set-new-password
+      navigate(`/set-new-password?emplid=${encodeURIComponent(id)}`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Unable to verify employee. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h1 className="mb-2 text-2xl font-semibold">Reset Your Password</h1>
-        <p className="mb-6 text-gray-600">
-          Answer your security questions to reset your password.
+    <div className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-md px-4 py-12">
+        <h1 className="text-2xl font-semibold text-slate-900">
+          Reset Your Password
+        </h1>
+        <p className="mt-1 text-slate-600">
+          Enter your Employee ID to continue.
         </p>
 
-        {/* If an empId is present in the URL, show it; otherwise show an input */}
-        {paramId ? (
-          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
-            Employee ID detected: <span className="font-medium">{paramId}</span>
-          </div>
-        ) : (
-          <form onSubmit={handleReset} className="mb-4">
-            <label className="mb-1 block text-sm font-medium">Employee ID</label>
+        <div className="mt-6 rounded-lg border bg-white p-6 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <label className="block text-sm font-medium text-slate-700">
+              Employee ID
+            </label>
             <input
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
-              inputMode="numeric"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-indigo-500"
+              className="w-full rounded-md border px-3 py-2 outline-none ring-blue-500 focus:ring"
               placeholder="e.g., 1234567"
+              inputMode="text"
+              autoFocus
             />
+
+            <div className="flex items-center justify-between">
+              <Link
+                to="/driver-login"
+                className="rounded-md border px-3 py-2 text-slate-700 hover:bg-slate-50"
+              >
+                Back to Login
+              </Link>
+              <button
+                type="submit"
+                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+                disabled={loading}
+              >
+                {loading ? "Checking…" : "Continue"}
+              </button>
+            </div>
           </form>
-        )}
 
-        <div className="mt-6 flex items-center gap-3">
-          <Link
-            to="/"
-            className="inline-flex items-center rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
-          >
-            Back to Login
-          </Link>
-
-          <button
-            onClick={handleReset}
-            disabled={!canSubmit}
-            className={`inline-flex items-center rounded-md px-4 py-2 text-white ${
-              canSubmit
-                ? "bg-indigo-600 hover:bg-indigo-700"
-                : "cursor-not-allowed bg-indigo-300"
-            }`}
-          >
-            Reset Password
-          </button>
+          <div className="mt-6 border-t pt-4 text-sm text-slate-500">
+            Need help? Contact your site administrator.
+          </div>
         </div>
       </div>
     </div>
