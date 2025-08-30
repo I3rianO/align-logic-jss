@@ -1,5 +1,6 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 
 // Existing pages
 import HomePage from "./pages/HomePage";
@@ -32,6 +33,9 @@ function NotFound() {
 export default function App() {
   return (
     <BrowserRouter>
+      {/* Toast notifications mount once at app root */}
+      <Toaster position="top-right" />
+
       <Routes>
         {/* Home / Landing */}
         <Route path="/" element={<HomePage />} />
