@@ -32,12 +32,12 @@ export default function DriverLoginPage() {
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
 
-  // 👇 NEW: success banner when coming back from reset flow
+  // ✅ success banner when coming back from reset flow
   const resetOk = search.get("reset") === "ok";
 
   /**
    * When we have an employeeId, look up the driver and whether a password exists.
-   * - public.drivers is assumed to contain (employee_id, name, company_id, site_id, ...)
+   * - public.drivers contains (employee_id, name, company_id, site_id, ...)
    * - public.has_driver_password(p_employee_id text) returns boolean
    */
   useEffect(() => {
@@ -47,7 +47,7 @@ export default function DriverLoginPage() {
     (async () => {
       setLoading(true);
       try {
-        // Fetch driver display info (name); no auth required (RLS read-only)
+        // Fetch driver display info
         const { data: driverRow, error: dErr } = await supabase
           .from("drivers")
           .select("name")
@@ -69,7 +69,7 @@ export default function DriverLoginPage() {
           setDriverName(driverRow.name || "");
         }
 
-        // Ask SQL helper: do we already have a password row?
+        // Ask SQL helper if password exists
         const { data: hasRow, error: hErr } = await supabase.rpc(
           "has_driver_password",
           { p_employee_id: employeeId }
@@ -105,7 +105,6 @@ export default function DriverLoginPage() {
       toast.error("Please enter your Employee ID.");
       return;
     }
-    // Reflect ID in the URL (so refresh keeps state)
     navigate(`/driver-login?emplid=${encodeURIComponent(id)}`);
   }
 
@@ -129,7 +128,7 @@ export default function DriverLoginPage() {
       if (error) throw error;
 
       if (ok === true) {
-        // Go to preferences and carry employee id in the URL
+        toast.success("Login successful!");
         navigate(`/driver-preferences?emplid=${encodeURIComponent(employeeId)}`);
       } else {
         toast.error("Invalid password. Please try again.");
@@ -142,9 +141,7 @@ export default function DriverLoginPage() {
     }
   }
 
-  /**
-   * Simple shells/sections
-   */
+  // Page shell wrapper
   function PageShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -154,7 +151,6 @@ export default function DriverLoginPage() {
             Enter your employee ID to access the job selection system.
           </p>
 
-          {/* Success banner from reset */}
           {resetOk && (
             <div className="mt-4 rounded-md border p-3 bg-green-50 border-green-200 text-green-700 text-sm">
               Your password was updated. Please login.
@@ -169,9 +165,7 @@ export default function DriverLoginPage() {
     );
   }
 
-  /**
-   * Step 1: Ask for employee ID
-   */
+  // Step 1: no employeeId yet
   if (!employeeId) {
     return (
       <PageShell>
@@ -208,9 +202,7 @@ export default function DriverLoginPage() {
     );
   }
 
-  /**
-   * Step 2: We have an employee ID. Show password login if we found the driver.
-   */
+  // Step 2: have an employeeId
   return (
     <PageShell>
       {loading && hasPassword === null ? (
@@ -225,15 +217,13 @@ export default function DriverLoginPage() {
         </div>
       ) : (
         <>
-          {/* Driver box */}
+          {/* Driver info */}
           <div className="mb-4 rounded-md border bg-slate-50 p-3 text-sm text-slate-800">
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">{driverName || "Driver"}</div>
                 <div className="text-slate-600">ID: {employeeId}</div>
               </div>
-
-              {/* If they typed the wrong ID, let them go back */}
               <Link
                 to="/driver-login"
                 className="rounded-md border px-3 py-1.5 text-sm text-slate-700 hover:bg-white"
@@ -244,7 +234,7 @@ export default function DriverLoginPage() {
           </div>
 
           {hasPassword ? (
-            // Existing driver: enter password
+            // Existing driver login
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm">
                 Password on file. Please login.
@@ -269,7 +259,6 @@ export default function DriverLoginPage() {
                 >
                   Forgot password?
                 </Link>
-
                 <div className="flex gap-2">
                   <Link
                     to="/driver-login"
@@ -288,7 +277,7 @@ export default function DriverLoginPage() {
               </div>
             </form>
           ) : (
-            // New driver: help them set a password
+            // New driver: set up password
             <div className="space-y-3">
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-blue-800 text-sm">
                 We don’t have a password on file for this driver yet.
