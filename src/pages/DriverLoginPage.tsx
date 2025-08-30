@@ -6,16 +6,15 @@ import { supabase } from "@/lib/supabase";
 
 /**
  * DriverLoginPage
- * - Step 1: Enter Employee ID, click Continue (writes ?emplid= to URL)
- * - Step 2: Once ?emplid= is present, fetch driver + password status
- * - On success, redirect to Driver Preferences with emplid pinned in the URL
- * - Shows a green success banner when redirected with ?reset=ok
+ * - Step 1: Enter Employee ID and press Continue (adds ?emplid= to URL)
+ * - Step 2: If ?emplid= is present, fetch driver info + password status
+ * - Shows success banner when redirected with ?reset=ok
  */
 export default function DriverLoginPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
 
-  // Read the chosen ID only from the URL param (after user clicks Continue)
+  // Only from URL param (after Continue)
   const paramId = useMemo(() => {
     return (
       search.get("emplid") ||
@@ -26,7 +25,6 @@ export default function DriverLoginPage() {
     ).trim();
   }, [search]);
 
-  // Local input field state for Step 1
   const [employeeId, setEmployeeId] = useState<string>(paramId);
   const [driverName, setDriverName] = useState<string>("");
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
@@ -34,14 +32,15 @@ export default function DriverLoginPage() {
   const [password, setPassword] = useState("");
   const resetOk = search.get("reset") === "ok";
 
-  // Keep the input box in sync if the URL param changes (e.g., after Continue)
+  // Keep form input in sync with URL
   useEffect(() => {
-    if (paramId && employeeId !== paramId) setEmployeeId(paramId);
+    if (paramId && employeeId !== paramId) {
+      setEmployeeId(paramId);
+    }
   }, [paramId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * Lookup runs ONLY when ?emplid= is present (after Continue),
-   * not on every keystroke while typing.
+   * Lookup driver only when paramId exists (after pressing Continue).
    */
   useEffect(() => {
     if (!paramId) return;
@@ -50,7 +49,6 @@ export default function DriverLoginPage() {
     (async () => {
       setLoading(true);
       try {
-        // Fetch driver display info
         const { data: driverRow, error: dErr } = await supabase
           .from("drivers")
           .select("name")
@@ -72,7 +70,6 @@ export default function DriverLoginPage() {
           setDriverName(driverRow.name || "");
         }
 
-        // Ask SQL helper if password exists
         const { data: hasRow, error: hErr } = await supabase.rpc(
           "has_driver_password",
           { p_employee_id: paramId }
@@ -97,7 +94,7 @@ export default function DriverLoginPage() {
     };
   }, [paramId]);
 
-  /** Step 1 submit: push the URL with ?emplid= */
+  /** Step 1: push URL with ?emplid= */
   function handleIdSubmit(e: React.FormEvent) {
     e.preventDefault();
     const id = employeeId.trim();
@@ -108,7 +105,7 @@ export default function DriverLoginPage() {
     navigate(`/driver-login?emplid=${encodeURIComponent(id)}`);
   }
 
-  /** Step 2 login submit: verify password via RPC */
+  /** Step 2: login via RPC */
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (!paramId) return;
@@ -122,6 +119,7 @@ export default function DriverLoginPage() {
         p_employee_id: paramId,
         p_plain: password,
       });
+
       if (error) throw error;
 
       if (ok === true) {
@@ -138,7 +136,7 @@ export default function DriverLoginPage() {
     }
   }
 
-  // Page shell wrapper
+  // Shell wrapper
   function PageShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -162,7 +160,7 @@ export default function DriverLoginPage() {
     );
   }
 
-  // Step 1: no ?emplid= in URL yet → just the ID form
+  // Step 1: no ?emplid= yet
   if (!paramId) {
     return (
       <PageShell>
@@ -175,7 +173,6 @@ export default function DriverLoginPage() {
             onChange={(e) => setEmployeeId(e.target.value)}
             className="w-full rounded-md border px-3 py-2 outline-none ring-blue-500 focus:ring"
             placeholder="e.g., 1234567"
-            // Use plain text to allow IDs like D001 / TEMP-7
             inputMode="text"
             autoFocus
           />
@@ -201,7 +198,7 @@ export default function DriverLoginPage() {
     );
   }
 
-  // Step 2: have ?emplid= → show driver info + either login or set-password path
+  // Step 2: have ?emplid= → show driver info + login or set-password
   return (
     <PageShell>
       {loading && hasPassword === null ? (
@@ -233,7 +230,6 @@ export default function DriverLoginPage() {
           </div>
 
           {hasPassword ? (
-            // Existing driver login
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm">
                 Password on file. Please login.
@@ -277,7 +273,6 @@ export default function DriverLoginPage() {
               </div>
             </form>
           ) : (
-            // New driver: set up password
             <div className="space-y-3">
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-blue-800 text-sm">
                 We don’t have a password on file for this driver yet.
