@@ -1,675 +1,694 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import toast from "react-hot-toast";
-import { supabase } from "@/lib/supabase";
-
+// src/pages/DriverPreferencesPage.tsx
 /**
- * Driver Preferences (devv preview-style)
- * - Driver banner with name / emplid / facility badge / seniority
- * - Searchable + filterable + sortable Available Jobs table
- * - Preference list with reordering and remove
- * - Save (upsert) + Print + Exit
+ * Job Preferences Page (devv preview version)
+ * - Driver info header
+ * - Search, filters, sortable columns
+ * - Preference list with up/down/remove
+ * - Save, Exit, Print
  *
- * Backend RPCs expected (created earlier):
- *  - get_driver_profile(p_employee_id text)
- *    -> { employee_id, name, company_id, site_id }
- *  - list_jobs_for_driver(p_employee_id text, p_week_start date)
- *    -> rows with: id (uuid), title (text), week_start_date (date), start_time (timestamptz|null), active (bool), site_id (text)
- *    (Optionally present columns will be used if they exist: job_id text, week_days text, is_airport bool)
- *  - list_driver_picks(p_employee_id text, p_week_start date)
- *    -> job_id, week_start_date, preference_rank, created_at
- *  - create_driver_pick(p_employee_id text, p_job_id uuid, p_week_start date, p_preference_rank int)
+ * Relies on:
+ *  - Zustand store: useDriverStore (jobs, drivers, prefs APIs, systemSettings)
+ *  - shadcn/ui: Button, Card, Badge, Input, Slider, Popover, Alert
+ *  - hooks: useToast, useIsMobile
+ *  - MainLayout shell
  */
 
-/* ---------- Types ---------- */
-type JobRow = {
-  id: string; // uuid
-  title: string | null;
-  week_start_date: string; // yyyy-mm-dd
-  start_time: string | null; // ISO or null
-  active: boolean | null;
-  site_id: string | null;
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import MainLayout from "@/components/layout/MainLayout";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import useDriverStore, { Job } from "@/store/driverStore";
+import {
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Loader2,
+  LogOut,
+  Plus,
+  Save,
+  Trash2,
+  Plane,
+  ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
+  Filter,
+  Printer,
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useIsMobile } from "@/hooks/use-mobile";
 
-  // Optional fields if your table has them:
-  job_id?: string | null; // e.g., "J001"
-  week_days?: string | null; // e.g., "Mon-Fri"
-  is_airport?: boolean | null;
+type SortKey = keyof Job | "";
+
+interface SortConfig {
+  key: SortKey;
+  direction: "asc" | "desc";
+}
+
+interface FilterConfig {
+  startTimeRange: [number, number]; // minutes from midnight
+  showAirport: boolean | null; // true=only airport, false=only non-airport, null=all
+  weekDays: string | null;
+  searchTerm: string;
+}
+
+const timeToMinutes = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
 };
+const minutesToTime = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-type PickRow = {
-  job_id: string; // uuid from jobs.id
-  week_start_date: string;
-  preference_rank: number | null;
-  created_at: string;
-};
-
-type Profile = {
-  employee_id: string;
-  name: string | null;
-  company_id: string | null;
-  site_id: string | null;
-};
-
-type SortKey = "jobId" | "startTime" | "weekDays" | "isAirport";
-
-/* ---------- Helpers ---------- */
-function isoToLocalTime(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  // 24h HH:MM
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-function minutesFromHHMM(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-function timeLabel(job: JobRow): string {
-  // Prefer explicit job.start_time; fall back to reading "HH:MM" from title if present
-  if (job.start_time) return isoToLocalTime(job.start_time);
-  const m = job.title?.match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
-  return m ? m[0] : "";
-}
-
-function jobCode(job: JobRow): string {
-  return (job.job_id ?? job.title ?? job.id).toString();
-}
-
-function weekDays(job: JobRow): string {
-  return job.week_days ?? "-";
-}
-
-function isAirport(job: JobRow): boolean {
-  return Boolean(job.is_airport) || /airport/i.test(job.title || "");
-}
-
-function mostRecentMonday(d = new Date()): string {
-  const dt = new Date(d);
-  const day = dt.getDay(); // 0=Sun..6=Sat
-  const diff = (day + 6) % 7;
-  dt.setDate(dt.getDate() - diff);
-  dt.setHours(0, 0, 0, 0);
-  return dt.toISOString().slice(0, 10);
-}
-
-/* ---------- Component ---------- */
 export default function DriverPreferencesPage() {
   const navigate = useNavigate();
-  const [search] = useSearchParams();
+  const location = useLocation();
+  const { toast } = useToast();
+  const isMobile = useIsMobile();
 
-  // Accept ?emplid=… and optional ?week=YYYY-MM-DD
-  const employeeId = useMemo(
-    () => (search.get("emplid") || search.get("empid") || search.get("id") || "").trim(),
-    [search]
-  );
-  const [weekStart, setWeekStart] = useState<string>(search.get("week") || mostRecentMonday());
+  // Router state (set by previous page)
+  const employeeId = location.state?.employeeId as string | undefined;
+  const authenticated = Boolean(location.state?.authenticated);
+  const siteId = location.state?.siteId as string | undefined;
+  const siteName = location.state?.siteName as string | undefined;
+  const companyId = location.state?.companyId as string | undefined;
 
-  // Driver info
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [seniority, setSeniority] = useState<string>(""); // if you store this elsewhere, wire here
-
-  // Jobs + picks (for the chosen week)
-  const [jobs, setJobs] = useState<JobRow[]>([]);
-  const [picks, setPicks] = useState<PickRow[]>([]);
-
-  // UI state
-  const [loading, setLoading] = useState<boolean>(false);
-  const [saving, setSaving] = useState<boolean>(false);
-
-  // Table utilities
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [onlyAirport, setOnlyAirport] = useState<null | boolean>(null); // null=all, true= airport only, false = non-airport only
-  const [timeRange, setTimeRange] = useState<[number, number]>([0, 24 * 60 - 1]); // minutes
-  const [weekdayFilter, setWeekdayFilter] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-
-  // Guard
+  // Redirect guards
   useEffect(() => {
     if (!employeeId) {
-      toast.error("Please login first.");
-      navigate("/driver-login");
+      navigate("/");
+    } else if (!authenticated) {
+      navigate("/driver-login", { state: { employeeId } });
     }
-  }, [employeeId, navigate]);
+  }, [employeeId, authenticated, navigate]);
 
-  // Load: profile, jobs, picks
-  useEffect(() => {
-    if (!employeeId) return;
-    let cancel = false;
-    (async () => {
-      setLoading(true);
-      try {
-        // Profile
-        const { data: prof, error: pErr } = await supabase.rpc("get_driver_profile", {
-          p_employee_id: employeeId,
-        });
-        if (pErr) throw pErr;
-        const profRow: Profile | null = Array.isArray(prof) ? prof[0] ?? null : (prof as any) ?? null;
-        if (!profRow) {
-          toast.error("Driver not found.");
-          navigate("/driver-login");
-          return;
-        }
-        if (!cancel) {
-          setProfile(profRow);
-          // If you eventually have seniority in a separate table, fetch and set here
-          setSeniority("1");
-        }
+  // Store bindings
+  const {
+    jobs,
+    drivers,
+    systemSettings,
+    getDriverPreferences,
+    submitPreferences,
+    isCutoffActive,
+    logDriverActivity,
+  } = useDriverStore();
 
-        // Jobs
-        const { data: jData, error: jErr } = await supabase.rpc("list_jobs_for_driver", {
-          p_employee_id: employeeId,
-          p_week_start: weekStart || null,
-        });
-        if (jErr) throw jErr;
-        if (!cancel) setJobs(jData ?? []);
-
-        // Picks
-        const { data: kData, error: kErr } = await supabase.rpc("list_driver_picks", {
-          p_employee_id: employeeId,
-          p_week_start: weekStart || null,
-        });
-        if (kErr) throw kErr;
-        if (!cancel) setPicks(kData ?? []);
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || "Failed to load preferences.");
-      } finally {
-        if (!cancel) setLoading(false);
-      }
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [employeeId, weekStart, navigate]);
-
-  // Build preference array as Job IDs (uuid) in order
-  const selectedJobIds = useMemo(
-    () => picks.map((p) => p.job_id),
-    [picks]
+  const driver = useMemo(
+    () => drivers.find((d) => d.employeeId === employeeId),
+    [drivers, employeeId]
   );
 
-  // Compose “Available Jobs” by removing already-picked
-  const availableJobs = useMemo(() => {
-    let arr = jobs.filter((j) => !selectedJobIds.includes(j.id));
+  // cutoff shown only before user starts picking
+  const hasStartedRef = React.useRef(false);
+  const [isCutoffReached, setIsCutoffReached] = useState(false);
+  useEffect(() => {
+    if (!hasStartedRef.current) setIsCutoffReached(isCutoffActive);
+    if (driver) {
+      logDriverActivity({
+        driverId: employeeId || "",
+        driverName: driver.name,
+        action: "view",
+        details: "Viewed job preferences page",
+      });
+    }
+  }, [isCutoffActive, employeeId, driver, logDriverActivity]);
+
+  // Existing prefs (array of jobId strings)
+  const existing = getDriverPreferences(employeeId || "");
+  const [jobPreferences, setJobPreferences] = useState<string[]>(existing || []);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Mark that user has begun once they add a pick (unlocks after-deadline UX)
+  useEffect(() => {
+    if (jobPreferences.length > 0 && !existing) {
+      hasStartedRef.current = true;
+    }
+  }, [jobPreferences, existing]);
+
+  // Sorting + filtering state
+  const [sort, setSort] = useState<SortConfig>({ key: "", direction: "asc" });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filters, setFilters] = useState<FilterConfig>({
+    startTimeRange: [0, 24 * 60 - 1],
+    showAirport: null,
+    weekDays: null,
+    searchTerm: "",
+  });
+
+  const handleSort = (key: SortKey) =>
+    setSort((prev) =>
+      prev.key === key ? { ...prev, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" }
+    );
+
+  // Only show jobs from driver's site/company; filter by cert/search/time/type/days; sort
+  const filteredSortedJobs = useMemo(() => {
+    let list = jobs;
+
+    // Restrict to the driver's site/company
+    if (siteId && companyId) {
+      list = list.filter((j) => j.siteId === siteId && j.companyId === companyId);
+    } else if (driver) {
+      list = list.filter((j) => j.siteId === driver.siteId && j.companyId === driver.companyId);
+    }
+
+    // Remove airport for non-certified drivers
+    if (driver && !driver.airportCertified) list = list.filter((j) => !j.isAirport);
 
     // Search
-    if (searchTerm.trim()) {
-      const t = searchTerm.toLowerCase();
-      arr = arr.filter(
+    if (filters.searchTerm.trim()) {
+      const t = filters.searchTerm.toLowerCase();
+      list = list.filter(
         (j) =>
-          jobCode(j).toLowerCase().includes(t) ||
-          timeLabel(j).toLowerCase().includes(t) ||
-          weekDays(j).toLowerCase().includes(t) ||
-          (j.title || "").toLowerCase().includes(t)
+          j.jobId.toLowerCase().includes(t) ||
+          j.startTime.toLowerCase().includes(t) ||
+          j.weekDays.toLowerCase().includes(t)
       );
     }
 
-    // Time range (uses HH:MM label if no explicit start_time)
-    arr = arr.filter((j) => {
-      const label = timeLabel(j);
-      if (!label) return true; // if unknown, don't filter it out
-      const mins = minutesFromHHMM(label);
-      return mins >= timeRange[0] && mins <= timeRange[1];
+    // Time range
+    list = list.filter((j) => {
+      const m = timeToMinutes(j.startTime);
+      return m >= filters.startTimeRange[0] && m <= filters.startTimeRange[1];
     });
 
-    // Airport filter
-    if (onlyAirport !== null) {
-      arr = arr.filter((j) => isAirport(j) === onlyAirport);
-    }
+    // Airport toggle
+    if (filters.showAirport !== null) list = list.filter((j) => j.isAirport === filters.showAirport);
 
-    // Weekday filter (if you store it)
-    if (weekdayFilter) {
-      arr = arr.filter((j) => weekDays(j).includes(weekdayFilter));
-    }
+    // Days
+    if (filters.weekDays) list = list.filter((j) => j.weekDays.includes(filters.weekDays!));
 
     // Sort
-    if (sortKey) {
-      arr.sort((a, b) => {
-        let A = 0;
-        let B = 0;
-        if (sortKey === "jobId") {
-          return sortDir === "asc"
-            ? jobCode(a).localeCompare(jobCode(b))
-            : jobCode(b).localeCompare(jobCode(a));
+    if (sort.key) {
+      list = [...list].sort((a, b) => {
+        if (sort.key === "startTime") {
+          const A = timeToMinutes(a.startTime);
+          const B = timeToMinutes(b.startTime);
+          return sort.direction === "asc" ? A - B : B - A;
         }
-        if (sortKey === "startTime") {
-          A = minutesFromHHMM(timeLabel(a) || "00:00");
-          B = minutesFromHHMM(timeLabel(b) || "00:00");
-        } else if (sortKey === "weekDays") {
-          return sortDir === "asc"
-            ? weekDays(a).localeCompare(weekDays(b))
-            : weekDays(b).localeCompare(weekDays(a));
-        } else if (sortKey === "isAirport") {
-          A = isAirport(a) ? 1 : 0;
-          B = isAirport(b) ? 1 : 0;
-        }
-        return sortDir === "asc" ? A - B : B - A;
+        const A = (a[sort.key] as string).toString();
+        const B = (b[sort.key] as string).toString();
+        return sort.direction === "asc" ? A.localeCompare(B) : B.localeCompare(A);
       });
     }
 
-    return arr;
-  }, [jobs, selectedJobIds, searchTerm, timeRange, onlyAirport, weekdayFilter, sortKey, sortDir]);
+    return list;
+  }, [jobs, driver, siteId, companyId, filters, sort]);
 
-  // Actions
-  async function add(jobId: string) {
-    if (!employeeId) return;
+  // Jobs not yet in preferences
+  const availableJobs = useMemo(
+    () => filteredSortedJobs.filter((j) => !jobPreferences.includes(j.jobId)),
+    [filteredSortedJobs, jobPreferences]
+  );
+
+  // Pref ops
+  const addJobPreference = (jobId: string) => setJobPreferences((p) => (p.includes(jobId) ? p : [...p, jobId]));
+  const removeJobPreference = (idx: number) => setJobPreferences((p) => p.filter((_, i) => i !== idx));
+  const moveJobUp = (idx: number) =>
+    setJobPreferences((p) => (idx === 0 ? p : p.map((x, i) => (i === idx ? p[idx - 1] : i === idx - 1 ? p[idx] : x))));
+  const moveJobDown = (idx: number) =>
+    setJobPreferences((p) =>
+      idx === p.length - 1 ? p : p.map((x, i) => (i === idx ? p[idx + 1] : i === idx + 1 ? p[idx] : x))
+    );
+
+  // Save prefs (stay on page)
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
     try {
-      const { data: ok, error } = await supabase.rpc("create_driver_pick", {
-        p_employee_id: employeeId,
-        p_job_id: jobId,
-        p_week_start: weekStart,
-        p_preference_rank: (picks.length || 0) + 1,
+      await new Promise((r) => setTimeout(r, 400)); // small UX delay
+      submitPreferences({
+        driverId: employeeId || "",
+        preferences: jobPreferences,
+        submissionTime: new Date().toISOString(),
       });
-      if (error) throw error;
-      if (ok === true) {
-        toast.success("Added to preferences.");
-        // refresh picks
-        const { data } = await supabase.rpc("list_driver_picks", {
-          p_employee_id: employeeId,
-          p_week_start: weekStart || null,
-        });
-        setPicks(data ?? []);
-      }
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err?.message || "Could not add preference.");
-    }
-  }
-
-  function moveUp(idx: number) {
-    if (idx <= 0 || idx >= picks.length) return;
-    const copy = [...picks];
-    [copy[idx - 1], copy[idx]] = [copy[idx], copy[idx - 1]];
-    // Renumber preference_rank locally
-    setPicks(copy.map((p, i) => ({ ...p, preference_rank: i + 1 })));
-  }
-
-  function moveDown(idx: number) {
-    if (idx < 0 || idx >= picks.length - 1) return;
-    const copy = [...picks];
-    [copy[idx + 1], copy[idx]] = [copy[idx], copy[idx + 1]];
-    setPicks(copy.map((p, i) => ({ ...p, preference_rank: i + 1 })));
-  }
-
-  function removeAt(idx: number) {
-    const copy = picks.filter((_, i) => i !== idx).map((p, i) => ({ ...p, preference_rank: i + 1 }));
-    setPicks(copy);
-  }
-
-  // Persist the current local order/ranks
-  async function saveAll() {
-    if (!employeeId) return;
-    try {
-      setSaving(true);
-      // Persist each row’s rank in order (idempotent; create_driver_pick upserts)
-      for (let i = 0; i < picks.length; i++) {
-        const p = picks[i];
-        const { error } = await supabase.rpc("create_driver_pick", {
-          p_employee_id: employeeId,
-          p_job_id: p.job_id,
-          p_week_start: weekStart,
-          p_preference_rank: i + 1,
-        });
-        if (error) throw error;
-      }
-      toast.success("Preferences saved.");
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err?.message || "Failed to save preferences.");
+      toast({
+        title: "Preferences Saved",
+        description:
+          jobPreferences.length === 0
+            ? "You've saved an empty preference list. No jobs will be assigned based on preferences."
+            : "Your job preferences have been successfully submitted.",
+      });
     } finally {
-      setSaving(false);
+      setIsSubmitting(false);
     }
-  }
+  };
 
-  function exit() {
-    navigate("/driver-login");
-  }
+  const exit = () => navigate("/");
 
-  function printPrefs() {
-    const driverName = profile?.name || "Unknown Driver";
-    const currentDate = new Date().toLocaleDateString();
+  // Reset filters
+  const resetFilters = () =>
+    setFilters({
+      startTimeRange: [0, 24 * 60 - 1],
+      showAirport: null,
+      weekDays: null,
+      searchTerm: "",
+    });
+
+  // Distinct weekdays for filter chips
+  const weekDayOptions = useMemo(() => Array.from(new Set(jobs.map((j) => j.weekDays))), [jobs]);
+
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let c = 0;
+    if (filters.startTimeRange[0] > 0 || filters.startTimeRange[1] < 24 * 60 - 1) c++;
+    if (filters.showAirport !== null) c++;
+    if (filters.weekDays !== null) c++;
+    if (filters.searchTerm.trim()) c++;
+    return c;
+  }, [filters]);
+
+  // Print
+  const printJobPreferences = () => {
     const win = window.open("", "_blank");
     if (!win) return;
-    const rows = picks
-      .map((p, i) => {
-        const job = jobs.find((j) => j.id === p.job_id);
-        if (!job) return "";
-        return `<tr>
-          <td>Pick ${i + 1}</td>
-          <td>${jobCode(job)}</td>
-          <td>${timeLabel(job) || "-"}</td>
-          <td>${weekDays(job)}</td>
-          <td>${isAirport(job) ? "Airport" : "Regular"}</td>
-        </tr>`;
-      })
-      .join("");
+
+    const driverName = driver?.name || "Unknown Driver";
+    const seniority = driver?.seniorityNumber || "N/A";
+    const date = new Date().toLocaleDateString();
+
+    const rows =
+      jobPreferences.length === 0
+        ? `<tr><td colspan="5" style="text-align:center;padding:20px;">No job preferences selected.</td></tr>`
+        : jobPreferences
+            .map((jobId, idx) => {
+              const j = jobs.find((x) => x.jobId === jobId);
+              if (!j) return "";
+              return `<tr>
+                <td>Pick ${idx + 1}</td>
+                <td>${j.jobId}</td>
+                <td>${j.startTime}</td>
+                <td>${j.weekDays}</td>
+                <td>${j.isAirport ? "Airport" : "Regular"}</td>
+              </tr>`;
+            })
+            .join("");
 
     win.document.open();
     win.document.write(`<!doctype html>
 <html>
 <head>
-<meta charset="utf-8" />
-<title>Job Preferences - ${driverName}</title>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; }
-  h1 { margin: 0 0 6px; }
-  .info { margin: 10px 0 20px; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-  th { background: #f2f2f2; }
-</style>
+  <meta charset="utf-8" />
+  <title>Job Preferences - ${driverName}</title>
+  <style>
+    body{font-family:Arial, sans-serif; padding:20px;}
+    h1{margin:0 0 6px;}
+    .row{display:flex; margin:4px 0;}
+    .label{width:160px; font-weight:bold;}
+    table{width:100%; border-collapse:collapse; margin-top:16px;}
+    th,td{border:1px solid #ddd; padding:8px; text-align:left;}
+    th{background:#f2f2f2;}
+  </style>
 </head>
 <body>
   <h1>Job Preferences</h1>
-  <div class="info">
-    <div><strong>Driver Name:</strong> ${driverName}</div>
-    <div><strong>Employee ID:</strong> ${employeeId}</div>
-    <div><strong>Week Starting:</strong> ${weekStart}</div>
-    <div><strong>Date:</strong> ${currentDate}</div>
-  </div>
+  <div class="row"><div class="label">Driver Name:</div><div>${driverName}</div></div>
+  <div class="row"><div class="label">Employee ID:</div><div>${employeeId}</div></div>
+  <div class="row"><div class="label">Seniority Number:</div><div>${seniority}</div></div>
+  <div class="row"><div class="label">Date Submitted:</div><div>${date}</div></div>
+
   <table>
     <thead><tr><th>Preference</th><th>Job ID</th><th>Start Time</th><th>Days of Week</th><th>Location</th></tr></thead>
-    <tbody>
-      ${
-        picks.length
-          ? rows
-          : `<tr><td colspan="5" style="text-align:center;padding:16px;">No job preferences selected.</td></tr>`
-      }
-    </tbody>
+    <tbody>${rows}</tbody>
   </table>
 </body>
 </html>`);
     win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 250);
+
+    setTimeout(() => {
+      win.print();
+      if (driver) {
+        logDriverActivity({
+          driverId: employeeId || "",
+          driverName: driver.name,
+          action: "view",
+          details: "Printed job preferences",
+        });
+      }
+    }, 300);
+  };
+
+  if (isCutoffReached && !hasStartedRef.current) {
+    return (
+      <MainLayout title="Job Preferences">
+        <div className="jss-container py-8">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-center">Job Selection Closed</CardTitle>
+              <CardDescription className="text-center">
+                The job selection period has ended. Contact your supervisor if you need assistance.
+              </CardDescription>
+            </CardHeader>
+            <CardFooter className="flex justify-center">
+              <Button onClick={exit}>Return to Home</Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </MainLayout>
+    );
   }
-
-  // Unique weekday values for filter chips (if your data has them)
-  const weekdayOptions = useMemo(() => {
-    const s = new Set<string>();
-    jobs.forEach((j) => {
-      const wd = weekDays(j);
-      if (wd && wd !== "-") s.add(wd);
-    });
-    return Array.from(s);
-  }, [jobs]);
-
-  // Header sort toggles
-  function toggleSort(key: SortKey) {
-    if (sortKey !== key) {
-      setSortKey(key);
-      setSortDir("asc");
-    } else {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    }
-  }
-
-  if (!employeeId) return null;
 
   return (
-    <div className="min-h-screen bg-[#f7f9fa]">
-      {/* Header (mountain style could be added via site-wide layout if you like) */}
-      <div className="bg-gradient-to-r from-slate-800 via-slate-700 to-blue-900 text-white py-6">
-        <div className="mx-auto max-w-6xl px-4">
-          <h1 className="text-2xl font-bold">Job Preferences</h1>
-          <p className="text-white/90">Efficient Workforce Management</p>
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Driver Info Card */}
-        <div className="mb-6 rounded-xl border bg-white shadow p-4">
-          <div className="grid gap-4 md:grid-cols-4 items-center">
-            <div>
-              <div className="text-sm text-slate-500">Driver Name</div>
-              <div className="text-lg font-medium">{profile?.name || "Unknown Driver"}</div>
-            </div>
-            <div>
-              <div className="text-sm text-slate-500">Employee ID</div>
-              <div className="text-lg font-medium">{employeeId}</div>
-            </div>
-            <div>
-              <div className="text-sm text-slate-500">Facility</div>
-              <div className="text-lg font-medium">
-                {profile?.site_id || "Unknown"}
-                {profile?.site_id && (
-                  <span className="ml-2 rounded border px-2 py-0.5 text-sm">{profile.site_id}</span>
-                )}
+    <MainLayout title="Job Preferences">
+      <div className="jss-container py-8">
+        {/* Driver Info */}
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle>Driver Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-4 gap-4 items-center">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Driver Name</p>
+                <p className="text-lg font-medium">{driver?.name || "Unknown Driver"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Employee ID</p>
+                <p className="text-lg font-medium">{employeeId}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Facility</p>
+                <p className="text-lg font-medium">
+                  {siteName || driver?.siteId || "Unknown"}
+                  <Badge variant="outline" className="ml-2">
+                    {siteId || driver?.siteId || ""}
+                  </Badge>
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Seniority Number</p>
+                <Badge variant="outline" className="text-base px-3 py-1 font-bold">
+                  {driver?.seniorityNumber || "N/A"}
+                </Badge>
               </div>
             </div>
-            <div>
-              <div className="text-sm text-slate-500">Seniority Number</div>
-              <span className="inline-flex rounded border px-3 py-1 text-base font-bold">{seniority || "N/A"}</span>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        {/* Selection Header */}
-        <div className="mb-3 text-slate-700">
-          <div className="text-base font-semibold">Select Your Job Preferences</div>
-          <div className="text-sm">
-            Add jobs in order of preference. Your first pick (Pick 1) will be considered first.
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="inline-flex items-center rounded border px-2 py-0.5 text-sm">
-              ✈️ Airport
-            </span>
-            <span className="text-xs text-slate-600">indicates an airport job requiring certification</span>
-          </div>
-        </div>
-
-        {/* Controls row */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <label className="text-sm text-slate-700">Week Starting</label>
-            <input
-              type="date"
-              value={weekStart}
-              onChange={(e) => setWeekStart(e.target.value)}
-              className="rounded border px-3 py-1.5 outline-none ring-blue-500 focus:ring"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search jobs…"
-              className="h-9 w-52 rounded border px-3 outline-none ring-blue-500 focus:ring"
-            />
-            {/* Airport filter */}
-            <select
-              className="h-9 rounded border px-2 outline-none ring-blue-500 focus:ring"
-              value={onlyAirport === null ? "all" : onlyAirport ? "airport" : "regular"}
-              onChange={(e) => {
-                const v = e.target.value;
-                setOnlyAirport(v === "all" ? null : v === "airport");
-              }}
-            >
-              <option value="all">All Jobs</option>
-              <option value="airport">Airport Only</option>
-              <option value="regular">Non-Airport</option>
-            </select>
-
-            {/* Weekdays filter (if present) */}
-            <select
-              className="h-9 rounded border px-2 outline-none ring-blue-500 focus:ring"
-              value={weekdayFilter ?? ""}
-              onChange={(e) => setWeekdayFilter(e.target.value || null)}
-            >
-              <option value="">All Schedules</option>
-              {weekdayOptions.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                </option>
-              ))}
-            </select>
-
-            {/* Time range (simple select to keep it robust) */}
-            <select
-              className="h-9 rounded border px-2 outline-none ring-blue-500 focus:ring"
-              onChange={(e) => {
-                const [a, b] = e.target.value.split("-").map(Number);
-                setTimeRange([a, b]);
-              }}
-            >
-              <option value={"0-1439"}>Any time</option>
-              <option value={`${6 * 60}-${10 * 60}`}>Morning (06:00–10:00)</option>
-              <option value={`${10 * 60}-${14 * 60}`}>Midday (10:00–14:00)</option>
-              <option value={`${14 * 60}-${18 * 60}`}>Afternoon (14:00–18:00)</option>
-              <option value={`${18 * 60}-${23 * 60 + 59}`}>Evening (18:00–23:59)</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* Available Jobs */}
-          <div className="md:col-span-2 rounded-xl border bg-white shadow">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div className="font-semibold">Available Jobs ({availableJobs.length})</div>
-              <div className="flex items-center gap-2 text-sm">
-                <button
-                  onClick={() => toggleSort("jobId")}
-                  className="rounded border px-2 py-1 hover:bg-slate-50"
-                >
-                  Job ID {sortKey === "jobId" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-                </button>
-                <button
-                  onClick={() => toggleSort("startTime")}
-                  className="rounded border px-2 py-1 hover:bg-slate-50"
-                >
-                  Start Time {sortKey === "startTime" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-                </button>
-                <button
-                  onClick={() => toggleSort("weekDays")}
-                  className="rounded border px-2 py-1 hover:bg-slate-50"
-                >
-                  Days of Week {sortKey === "weekDays" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-                </button>
-                <button
-                  onClick={() => toggleSort("isAirport")}
-                  className="rounded border px-2 py-1 hover:bg-slate-50"
-                >
-                  Location {sortKey === "isAirport" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-                </button>
+        {/* Selection Panel */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Select Your Job Preferences</CardTitle>
+            <CardDescription>
+              Add jobs in order of preference. Your first pick (Pick 1) will be considered first.
+              <div className="mt-2">
+                <Badge variant="outline" className="flex items-center w-fit">
+                  <Plane size={14} className="mr-1" /> Airport
+                </Badge>
+                <span className="text-xs ml-2">indicates an airport job requiring certification</span>
               </div>
-            </div>
+              {driver && !driver.airportCertified && (
+                <Alert className="mt-2">
+                  <Info className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
+                    Airport jobs are not displayed as you are not airport certified.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardDescription>
+            {isCutoffActive && hasStartedRef.current && (
+              <Alert className="mt-2 bg-yellow-50 border-yellow-200">
+                <Info className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-sm text-yellow-700">
+                  Note: The selection deadline has passed, but you can still complete and submit your current selections.
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardHeader>
 
+          <CardContent className="space-y-6">
+            {/* Filters / search */}
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="p-2 pl-3 text-left">Job ID</th>
-                    <th className="p-2 text-left">Start Time</th>
-                    <th className="p-2 text-left">Days of Week</th>
-                    <th className="p-2 text-left">Location</th>
-                    <th className="p-2 pr-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {availableJobs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-6 text-center text-slate-500">
-                        No jobs available that match your filters.
-                      </td>
+              <div className="flex justify-between mb-3 items-center">
+                <h3 className="text-sm font-semibold">Available Jobs ({availableJobs.length})</h3>
+
+                <div className="flex gap-2">
+                  {/* Search */}
+                  <div className="relative w-[200px]">
+                    <Input
+                      placeholder="Search jobs..."
+                      value={filters.searchTerm}
+                      onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+                      className="h-9 pl-8"
+                    />
+                    <div className="absolute left-2 top-2 text-muted-foreground">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+                    </div>
+                  </div>
+
+                  {/* Filter popover */}
+                  <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="relative">
+                        <Filter size={16} className="mr-2" />
+                        Filter
+                        {activeFilterCount > 0 && (
+                          <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center rounded-full text-xs">
+                            {activeFilterCount}
+                          </Badge>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80" align="end">
+                      <div className="space-y-4 p-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold text-sm">Filter Jobs</h4>
+                          <Button variant="ghost" size="sm" onClick={resetFilters} className="h-7 text-xs">
+                            Reset
+                          </Button>
+                        </div>
+
+                        {/* Time range */}
+                        <div className="space-y-2">
+                          <h5 className="text-sm font-medium">Start Time Range</h5>
+                          <div className="px-2">
+                            <div className="relative mt-6 mb-6">
+                              <Slider
+                                value={filters.startTimeRange}
+                                min={0}
+                                max={24 * 60 - 1}
+                                step={15}
+                                onValueChange={(v) =>
+                                  setFilters({ ...filters, startTimeRange: [v[0], v[1]] as [number, number] })
+                                }
+                                className="my-6"
+                              />
+                              {/* decorative end handles */}
+                              <div
+                                className="absolute w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md"
+                                style={{
+                                  left: `calc(${(filters.startTimeRange[0] / (24 * 60 - 1)) * 100}% - 8px)`,
+                                  top: "50%",
+                                  transform: "translateY(-50%)",
+                                  zIndex: 10,
+                                }}
+                              />
+                              <div
+                                className="absolute w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md"
+                                style={{
+                                  left: `calc(${(filters.startTimeRange[1] / (24 * 60 - 1)) * 100}% - 8px)`,
+                                  top: "50%",
+                                  transform: "translateY(-50%)",
+                                  zIndex: 10,
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>{minutesToTime(filters.startTimeRange[0])}</span>
+                            <span>{minutesToTime(filters.startTimeRange[1])}</span>
+                          </div>
+                        </div>
+
+                        {/* Airport filter (only if certified) */}
+                        {driver?.airportCertified && (
+                          <div className="space-y-2">
+                            <h5 className="text-sm font-medium">Job Type</h5>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                variant={filters.showAirport === null ? "secondary" : "outline"}
+                                size="sm"
+                                onClick={() => setFilters({ ...filters, showAirport: null })}
+                                className="text-xs h-7"
+                              >
+                                All Jobs
+                              </Button>
+                              <Button
+                                variant={filters.showAirport === true ? "secondary" : "outline"}
+                                size="sm"
+                                onClick={() => setFilters({ ...filters, showAirport: true })}
+                                className="text-xs h-7"
+                              >
+                                <Plane size={12} className="mr-1" />
+                                Airport Only
+                              </Button>
+                              <Button
+                                variant={filters.showAirport === false ? "secondary" : "outline"}
+                                size="sm"
+                                onClick={() => setFilters({ ...filters, showAirport: false })}
+                                className="text-xs h-7"
+                              >
+                                Non-Airport
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Weekdays */}
+                        <div className="space-y-2">
+                          <h5 className="text-sm font-medium">Week Days</h5>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant={filters.weekDays === null ? "secondary" : "outline"}
+                              size="sm"
+                              onClick={() => setFilters({ ...filters, weekDays: null })}
+                              className="text-xs h-7"
+                            >
+                              All Schedules
+                            </Button>
+                            {weekDayOptions.map((opt) => (
+                              <Button
+                                key={opt}
+                                variant={filters.weekDays === opt ? "secondary" : "outline"}
+                                size="sm"
+                                onClick={() => setFilters({ ...filters, weekDays: opt })}
+                                className="text-xs h-7"
+                              >
+                                {opt}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="border rounded-md">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="font-semibold text-left p-2 pl-3 text-sm cursor-pointer" onClick={() => handleSort("jobId")}>
+                        <div className="flex items-center">
+                          Job ID
+                          {sort.key === "jobId" ? (sort.direction === "asc" ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                        </div>
+                      </th>
+                      <th className="font-semibold text-left p-2 text-sm cursor-pointer" onClick={() => handleSort("startTime")}>
+                        <div className="flex items-center">
+                          Start Time
+                          {sort.key === "startTime" ? (sort.direction === "asc" ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                        </div>
+                      </th>
+                      <th className="font-semibold text-left p-2 text-sm cursor-pointer" onClick={() => handleSort("weekDays")}>
+                        <div className="flex items-center">
+                          Days of Week
+                          {sort.key === "weekDays" ? (sort.direction === "asc" ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                        </div>
+                      </th>
+                      <th className="font-semibold text-left p-2 text-sm cursor-pointer" onClick={() => handleSort("isAirport")}>
+                        <div className="flex items-center">
+                          Location
+                          {sort.key === "isAirport" ? (sort.direction === "asc" ? <ArrowUp size={14} className="ml-1" /> : <ArrowDown size={14} className="ml-1" />) : <ArrowUpDown size={14} className="ml-1 text-muted-foreground" />}
+                        </div>
+                      </th>
+                      <th className="font-semibold text-right p-2 pr-3 text-sm">Action</th>
                     </tr>
-                  ) : (
-                    availableJobs.slice(0, 20).map((j) => (
-                      <tr key={j.id} className="border-t hover:bg-slate-50/50">
-                        <td className="p-2 pl-3">{jobCode(j)}</td>
-                        <td className="p-2">{timeLabel(j) || "-"}</td>
-                        <td className="p-2">{weekDays(j)}</td>
-                        <td className="p-2">
-                          {isAirport(j) ? (
-                            <span className="inline-flex items-center rounded border px-2 py-0.5 text-xs">
-                              ✈️ Airport
-                            </span>
-                          ) : (
-                            "Regular"
-                          )}
-                        </td>
-                        <td className="p-2 pr-3 text-right">
-                          <button
-                            onClick={() => add(j.id)}
-                            className="rounded border px-2 py-1 hover:bg-slate-50"
-                          >
-                            + Add
-                          </button>
+                  </thead>
+                  <tbody>
+                    {availableJobs.length > 0 ? (
+                      availableJobs.slice(0, 10).map((job) => (
+                        <tr key={job.jobId} className="border-t hover:bg-muted/30">
+                          <td className="p-2 pl-3 text-sm">{job.jobId}</td>
+                          <td className="p-2 text-sm">{job.startTime}</td>
+                          <td className="p-2 text-sm">{job.weekDays}</td>
+                          <td className="p-2 text-sm">
+                            {job.isAirport ? (
+                              <Badge variant="outline" className="flex items-center w-fit">
+                                <Plane size={12} className="mr-1" /> Airport
+                              </Badge>
+                            ) : (
+                              "Regular"
+                            )}
+                          </td>
+                          <td className="p-2 pr-3 text-right">
+                            <Button size="sm" variant="ghost" onClick={() => addJobPreference(job.jobId)} className="h-7">
+                              <Plus size={14} className="mr-1" /> Add
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="text-center py-4 text-muted-foreground">
+                          No jobs available that match your filters
                         </td>
                       </tr>
-                    ))
-                  )}
-                  {availableJobs.length > 20 && (
-                    <tr className="border-t">
-                      <td colSpan={5} className="py-2 text-center text-slate-500">
-                        + {availableJobs.length - 20} more jobs available
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                    {availableJobs.length > 10 && (
+                      <tr className="border-t">
+                        <td colSpan={5} className="text-center py-2 text-sm text-muted-foreground">
+                          + {availableJobs.length - 10} more jobs available
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
 
-          {/* Preferences */}
-          <div className="rounded-xl border bg-white shadow">
-            <div className="border-b px  -4 py-3 px-4">
-              <div className="font-semibold">Your Job Preferences ({picks.length})</div>
-            </div>
-            <div className="p-4">
-              {picks.length === 0 ? (
-                <div className="rounded border border-dashed p-6 text-center text-slate-500">
-                  No job preferences added yet. Select jobs from the list above.
+            {/* Preferences */}
+            <div className="border-t pt-6">
+              <h3 className="text-sm font-semibold mb-3">Your Job Preferences ({jobPreferences.length})</h3>
+              {jobPreferences.length === 0 ? (
+                <div className="text-center p-6 border border-dashed rounded-md">
+                  <p className="text-muted-foreground">No job preferences added yet. Select jobs from the list above.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {picks.map((p, idx) => {
-                    const job = jobs.find((j) => j.id === p.job_id);
+                <div className="space-y-4">
+                  {jobPreferences.map((jobId, index) => {
+                    const job = jobs.find((j) => j.jobId === jobId);
                     return (
-                      <div key={`${p.job_id}-${p.week_start_date}`} className="flex items-center gap-2">
-                        <div className="min-w-[60px] font-medium">Pick {idx + 1}</div>
-                        <div className="flex-1 rounded border bg-slate-50/40 p-2">
-                          {job ? (
-                            <div className="flex items-center gap-2">
-                              <span>
-                                {jobCode(job)} • {timeLabel(job) || "-"} • {weekDays(job)}
-                              </span>
-                              {isAirport(job) && (
-                                <span className="ml-2 inline-flex items-center rounded border px-2 py-0.5 text-xs">
-                                  ✈️ Airport
-                                </span>
+                      <div key={`${jobId}-${index}`} className="flex items-center gap-2">
+                        <div className="min-w-[60px] font-medium">Pick {index + 1}</div>
+                        <div className="flex-1 border rounded-md p-2 bg-muted/20">
+                          <div className="flex items-center">
+                            <span>
+                              {jobId} • {job?.startTime} • {job?.weekDays}
+                              {job?.isAirport && (
+                                <Badge variant="outline" className="ml-2 flex items-center inline-flex">
+                                  <Plane size={14} className="mr-1" /> Airport
+                                </Badge>
                               )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-500">{p.job_id.slice(0, 8)}…</span>
-                          )}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex gap-1">
-                          <button
-                            className="rounded border px-2 py-1 disabled:opacity-50"
-                            onClick={() => moveUp(idx)}
-                            disabled={idx === 0}
-                            title="Move up"
+                          <Button variant="outline" size="icon" onClick={() => moveJobUp(index)} disabled={index === 0}>
+                            <ChevronUp size={18} />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => moveJobDown(index)}
+                            disabled={index === jobPreferences.length - 1}
                           >
-                            ↑
-                          </button>
-                          <button
-                            className="rounded border px-2 py-1 disabled:opacity-50"
-                            onClick={() => moveDown(idx)}
-                            disabled={idx === picks.length - 1}
-                            title="Move down"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            className="rounded border px-2 py-1"
-                            onClick={() => removeAt(idx)}
-                            title="Remove"
-                          >
-                            ✕
-                          </button>
+                            <ChevronDown size={18} />
+                          </Button>
+                          <Button variant="outline" size="icon" onClick={() => removeJobPreference(index)}>
+                            <Trash2 size={18} className="text-destructive" />
+                          </Button>
                         </div>
                       </div>
                     );
@@ -677,37 +696,52 @@ export default function DriverPreferencesPage() {
                 </div>
               )}
 
-              <div className="mt-4 rounded border bg-slate-50 p-3 text-sm text-slate-700">
-                {picks.length > 0 ? (
-                  <>You’ve selected {picks.length} job{picks.length !== 1 ? "s" : ""}. Jobs are assigned based on seniority and your preference order.</>
-                ) : (
-                  <>You haven’t selected any jobs. You can still save an empty preference list, but you won’t be assigned a job based on preferences.</>
-                )}
-              </div>
-
-              <div className="mt-4 flex flex-wrap justify-between gap-2">
-                <div className="flex gap-2">
-                  <button onClick={exit} className="rounded border px-3 py-2 hover:bg-slate-50">
-                    Exit
-                  </button>
-                  <button onClick={printPrefs} className="rounded border px-3 py-2 hover:bg-slate-50">
-                    Print
-                  </button>
-                </div>
-                <button
-                  onClick={saveAll}
-                  disabled={saving || loading}
-                  className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-60"
-                >
-                  {saving ? "Saving…" : "Save Preferences"}
-                </button>
-              </div>
+              <Alert className="bg-muted/50 mt-4">
+                <Info className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  {jobPreferences.length > 0 ? (
+                    <>
+                      You've selected {jobPreferences.length} job{jobPreferences.length !== 1 ? "s" : ""}. Jobs will be
+                      assigned based on seniority and your preference order.
+                    </>
+                  ) : (
+                    <>
+                      You haven't selected any jobs. You can still save an empty preference list, but you won't be
+                      assigned a job based on your preferences.
+                    </>
+                  )}
+                </AlertDescription>
+              </Alert>
             </div>
-          </div>
-        </div>
+          </CardContent>
 
-        {loading && <div className="mt-4 text-sm text-slate-500">Loading…</div>}
+          <CardFooter className="flex justify-between flex-wrap gap-2">
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={exit}>
+                <LogOut size={18} className="mr-1" /> Exit
+              </Button>
+
+              {systemSettings.allowDriverPrinting && (
+                <Button variant="outline" onClick={printJobPreferences}>
+                  <Printer size={18} className="mr-1" /> Print
+                </Button>
+              )}
+            </div>
+
+            <Button onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={18} className="mr-1 animate-spin" /> Submitting...
+                </>
+              ) : (
+                <>
+                  <Save size={18} className="mr-1" /> Save Preferences
+                </>
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
-    </div>
+    </MainLayout>
   );
 }
